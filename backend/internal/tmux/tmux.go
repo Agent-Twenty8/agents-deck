@@ -62,6 +62,10 @@ const pbcopy = "/usr/bin/pbcopy"
 // (agentctl set mouse); the daemon wires it to config.json.
 var NativeMouse = func() bool { return false }
 
+// TitleFormat is the terminal tab title of an agent pane. (No ":" or "/"
+// in the patterns: tmux would split the format there.)
+const TitleFormat = "#{?#{m/r:[A-Za-z0-9],#{pane_title}},#{s/^[^A-Za-z0-9]+ //:pane_title},#{b:pane_current_path}}"
+
 // ServerDefaults sets the server-wide options and key bindings of our private
 // server (a no-op while it isn't running; NewSession applies them again).
 //
@@ -91,10 +95,12 @@ func ServerDefaults() {
 		{"bind-key", "-n", "MouseUp1Pane", `if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'` + self + `' open-link --link=#{q:mouse_hyperlink} --word=#{q:mouse_word}" }`},
 		{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
 		screen,
-		// The terminal tab shows the agent's name as Claude Code sets it
-		// ("✳ CMM server"), not just "tmux".
+		// The terminal tab shows the agent's name as Claude Code sets it,
+		// not just "tmux", without its leading status glyph ("✳ CMM server"
+		// is "CMM server": a narrow tab showed only the ✳), and the folder
+		// while the pane has no name yet.
 		{"set-option", "-g", "set-titles", "on"},
-		{"set-option", "-g", "set-titles-string", "#{pane_title}"},
+		{"set-option", "-g", "set-titles-string", TitleFormat},
 		{"set-option", "-g", "escape-time", "10"},
 		{"set-option", "-g", "focus-events", "on"}, // lets us see which tab has focus
 		{"bind-key", "-n", "C-q", "detach-client"},

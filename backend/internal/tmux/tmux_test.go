@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,12 +57,19 @@ func TestServerDefaultsMouseModes(t *testing.T) {
 	Socket = fmt.Sprintf("agentsdeck-test-m%d", os.Getpid())
 	t.Cleanup(func() { _, _ = run("kill-server"); Socket, NativeMouse = old, oldMouse })
 	NativeMouse = func() bool { return true }
-	if err := NewSession("t", t.TempDir(), nil, []string{"cat"}); err != nil {
+	dir := t.TempDir()
+	if err := NewSession("t", dir, nil, []string{"cat"}); err != nil {
 		t.Fatal(err)
 	}
 	show := func(args ...string) string { out, _ := run(append([]string{"show-options"}, args...)...); return out }
-	if v := show("-gv", "set-titles-string"); v != "#{pane_title}" || show("-gv", "set-titles") != "on" {
+	if v := show("-gv", "set-titles-string"); v != TitleFormat || show("-gv", "set-titles") != "on" {
 		t.Errorf("terminal title should follow the pane title: %q", v)
+	}
+	for title, want := range map[string]string{"✳ CMM server": "CMM server", "◐ Agents Deck": "Agents Deck", "✳": filepath.Base(dir), "/var space usage": "/var space usage"} {
+		_, _ = run("select-pane", "-t", "t", "-T", title)
+		if got, _ := run("display-message", "-p", "-t", "t", TitleFormat); strings.TrimSpace(got) != want {
+			t.Errorf("tab title for %q = %q, want %q", title, got, want)
+		}
 	}
 	if m := show("-gv", "mouse"); m != "off" {
 		t.Errorf("native: mouse = %q", m)
