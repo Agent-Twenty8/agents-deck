@@ -142,59 +142,249 @@ const MINI = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><g cl
   '<rect class="b" x="0" y="2" width="1" height="2"/><rect class="b" x="13" y="2" width="1" height="2"/>' +
   `<rect class="c" x="4" y="1.5" width="1" height="2"/><rect class="c" x="9" y="1.5" width="1" height="2"/></g>${critterLegs(LEGS_A, 'la')}${critterLegs(LEGS_B, 'lb')}</g>`;
 
-// Hats: bitmap rows ending on y -1 (just above the head); a = the hat's colour,
-// b = its shade, c = highlight, d = near-black. The onigiri wears a narrower
-// version that sits down over its tip. Shapes and colours match the daemon's.
-const HATS = {
-  'hard hat': ['....aaaaa.....', '...acaaaaa....', '..aaaaaaaaa...', '.bbbbbbbbbbbb.'],
-  cap: ['........aaaaaa', '.......aaaaacaa', 'bbbbbbbbbbbbbbb'], // baseball: brim long to the left (from x -3)
-  beanie: ['.....cc.......', '....aaaaaa....', '...aaaaaaaa...', '..babababab...'],
-  helmet: ['....aaaaaa....', '...aaaaaaaa...', '..aaaacaaaaa..', '..bbbbbbbbbb..'],
-  wizard: ['........a.....', '.......aa.....', '......aaca....', '.....aaaaaa...', '..bbbbbbbbbb..'],
-  beret: ['......b.......', '...aaaaaaaa...', '..aaaaaaaaaaa.', '...bbbbbbbb...'],
-  chef: ['...cc.cc.cc...', '..cccccccccc..', '...cccccccc...', '...aaaaaaaa...'],
-  crown: ['...a..aa..a...', '...aa.aa.aa...', '...aaaaaaaa...', '...acaacaaca..'],
-  headphones: ['....aaaaaa....', '...a......a...', '..a........a..'],
-  propeller: ['..cccc.aaaa...', '.......d......', '....ababab....', '...aaaaaaaa...'],
-  'top hat': ['...aaaaaaaa...', '...aaaaaaaa...', '...aaaaaaaa...', '...bbbbbbbb...', '.aaaaaaaaaaaa.'],
-  cowboy: ['.....aaaa.....', '....aabbaa....', 'b...aaaaaa...b', 'bbbbbbbbbbbbbb'],
-  bandana: ['..aaaaaaaaaa.b', '..acacacacac.b'],
+// Hats: bitmap rows placed at (x, top); a = the hat's colour, b = its shade,
+// c = highlight, d = near-black; extras are single cells (x, y, key). Every hat
+// has a still version and the frames it cycles through while its agent works,
+// for the critter and for the onigiri (narrower, sitting over its tip). The
+// bandana's knot and tails sit on the left. Mirrors critter.dart; generated
+// from the approved design, so edit both together.
+const HAT_ART = {
+  "hard hat": {
+  ms: 400,
+  critterStill: { x: 0, top: -4, rows: ["....aaaaa.....", "...acaaaaa....", "..aaaaaaaaa...", ".bbbbbbbbbbbb."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["....aaaaa.....", "...acaaaaa....", "..aaaaccaaa...", ".bbbbbbbbbbbb."], extras: [] },
+    { x: 0, top: -4, rows: ["....aaaaa.....", "...acaaaaa....", "..aaaabbaaa...", ".bbbbbbbbbbbb."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -3, rows: [".....aaaa.....", "....acaaaa....", "...bbbbbbbb..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -3, rows: [".....aaaa.....", "....acccaa....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....acbbaa....", "...bbbbbbbb..."], extras: [] },
+  ],
+  },
+  cap: {
+  ms: 300,
+  critterStill: { x: -3, top: -3, rows: ["........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"], extras: [] },
+  critter: [
+    { x: -3, top: -3, rows: ["........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"], extras: [] },
+    { x: -3, top: -3, rows: ["........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"], extras: [] },
+    { x: -3, top: -3, rows: ["........aaaaaa", ".......aaaaacaa", "...bbbbbbbbbbbb"], extras: [[-3, 0, "b"], [-2, 0, "b"]] },
+    { x: -3, top: -3, rows: ["........aaaaaa", ".......aaaaacaa", "bbbbbbbbbbbbbbb"], extras: [] },
+  ],
+  onigiriStill: { x: -1, top: -3, rows: ["......aaaa", ".....aaacaa", "bbbbbbbbbbbb"], extras: [] },
+  onigiri: [
+    { x: -1, top: -3, rows: ["......aaaa", ".....aaacaa", "bbbbbbbbbbbb"], extras: [] },
+    { x: -1, top: -3, rows: ["......aaaa", ".....aaacaa", "bbbbbbbbbbbb"], extras: [] },
+    { x: -1, top: -3, rows: ["......aaaa", ".....aaacaa", "..bbbbbbbbbb"], extras: [[-1, 0, "b"]] },
+    { x: -1, top: -3, rows: ["......aaaa", ".....aaacaa", "bbbbbbbbbbbb"], extras: [] },
+  ],
+  },
+  beanie: {
+  ms: 350,
+  critterStill: { x: 0, top: -4, rows: [".....cc.......", "....aaaaaa....", "...aaaaaaaa...", "..babababab..."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: [".....cc.......", "....aaaaaa....", "...aaaaaaaa...", "..babababab..."], extras: [] },
+    { x: 0, top: -3, rows: ["....aaaaaa....", "...aaaaaaaa...", "..babababab..."], extras: [[5, -5, "c"], [6, -5, "c"]] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: ["......cc......", ".....aaaa.....", "....aaaaaa....", "...babababa..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: ["......cc......", ".....aaaa.....", "....aaaaaa....", "...babababa..."], extras: [] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....aaaaaa....", "...babababa..."], extras: [[6, -5, "c"], [7, -5, "c"]] },
+  ],
+  },
+  helmet: {
+  ms: 280,
+  critterStill: { x: 0, top: -4, rows: ["....aaaaaa....", "...aaaaaaaa...", "..aaaacaaaaa..", "..bbbbbbbbbb.."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["....aaaaaa....", "...aaaaaaaa...", "..acaaaaaaaa..", "..bbbbbbbbbb.."], extras: [] },
+    { x: 0, top: -4, rows: ["....aaaaaa....", "...aaaaaaaa...", "..aaaaacaaaa..", "..bbbbbbbbbb.."], extras: [] },
+    { x: 0, top: -4, rows: ["....aaaaaa....", "...aaaaaaaa...", "..aaaaaaaaca..", "..bbbbbbbbbb.."], extras: [] },
+    { x: 0, top: -4, rows: ["....aaaaaa....", "...aaaaaaaa...", "..aaaaaaaaaa..", "..bbbbbbbbbb.."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -3, rows: [".....aaaa.....", "....aacaaa....", "...bbbbbbbb..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -3, rows: [".....aaaa.....", "....acaaaa....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....aaacaa....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....aaaaca....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [] },
+  ],
+  },
+  wizard: {
+  ms: 300,
+  critterStill: { x: 0, top: -5, rows: ["........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."], extras: [] },
+  critter: [
+    { x: 0, top: -5, rows: ["........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."], extras: [] },
+    { x: 0, top: -5, rows: [".........a....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."], extras: [[11, -6, "c"]] },
+    { x: 0, top: -5, rows: ["........a.....", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."], extras: [] },
+    { x: 0, top: -5, rows: [".......a......", ".......aa.....", "......aaca....", ".....aaaaaa...", "..bbbbbbbbbb.."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -5, rows: ["......aa......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -5, rows: ["......a.......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -5, rows: [".......a......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [[9, -6, "c"]] },
+    { x: 0, top: -5, rows: ["......a.......", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -5, rows: [".....a........", "......aa......", ".....acaa.....", "....aaaaaa....", "...bbbbbbbb..."], extras: [] },
+  ],
+  },
+  beret: {
+  ms: 300,
+  critterStill: { x: 0, top: -4, rows: ["......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -4, rows: [".......b......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -4, rows: ["......b.......", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."], extras: [] },
+    { x: 0, top: -4, rows: [".....b........", "...aaaaaaaa...", "..aaaaaaaaaaa.", "...bbbbbbbb..."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: ["......bb......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: ["......b.......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."], extras: [] },
+    { x: 0, top: -4, rows: [".......b......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."], extras: [] },
+    { x: 0, top: -4, rows: ["......b.......", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."], extras: [] },
+    { x: 0, top: -4, rows: [".....b........", "....aaaaaa....", "..aaaaaaaaaa..", "....bbbbbb...."], extras: [] },
+  ],
+  },
+  chef: {
+  ms: 450,
+  critterStill: { x: 0, top: -4, rows: ["...cc.cc.cc...", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["...cc.cc.cc...", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -5, rows: ["....cccccc....", "..cccccccccc..", "..cccccccccc..", "...cccccccc...", "...aaaaaaaa..."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: ["....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: ["....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."], extras: [] },
+    { x: 0, top: -5, rows: [".....cccc.....", "....cccccc....", "....cccccc....", ".....cccc.....", "....aaaaaa...."], extras: [] },
+  ],
+  },
+  crown: {
+  ms: 280,
+  critterStill: { x: 0, top: -4, rows: ["...a..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["...c..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."], extras: [] },
+    { x: 0, top: -4, rows: ["...a..ca..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."], extras: [] },
+    { x: 0, top: -4, rows: ["...a..ac..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."], extras: [] },
+    { x: 0, top: -4, rows: ["...a..aa..a...", "...aa.aa.aa...", "...aaaaaaaa...", "...acaacaaca.."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -3, rows: ["....a.aa.a....", "....aaaaaa....", "....acaaca...."], extras: [] },
+  onigiri: [
+    { x: 0, top: -3, rows: ["....c.aa.a....", "....aaaaaa....", "....acaaca...."], extras: [] },
+    { x: 0, top: -3, rows: ["....a.ca.a....", "....aaaaaa....", "....acaaca...."], extras: [] },
+    { x: 0, top: -3, rows: ["....a.ac.a....", "....aaaaaa....", "....acaaca...."], extras: [] },
+    { x: 0, top: -3, rows: ["....a.aa.a....", "....aaaaaa....", "....acaaca...."], extras: [] },
+  ],
+  },
+  headphones: {
+  ms: 320,
+  critterStill: { x: 0, top: -3, rows: ["....aaaaaa....", "...a......a...", "..a........a.."], extras: [] },
+  critter: [
+    { x: 0, top: -3, rows: ["....aaaaaa....", "...a......a...", "..a........a.."], extras: [[-2, -1, "c"], [-1, -2, "c"]] },
+    { x: 0, top: -3, rows: ["....aaaaaa....", "...a......a...", "..a........a.."], extras: [[-2, -2, "c"], [-1, -3, "c"]] },
+    { x: 0, top: -3, rows: ["....aaaaaa....", "...a......a...", "..a........a.."], extras: [[-3, -3, "c"], [-2, -4, "c"], [-1, -1, "c"]] },
+    { x: 0, top: -3, rows: ["....aaaaaa....", "...a......a...", "..a........a.."], extras: [[-2, -2, "c"]] },
+  ],
+  onigiriStill: { x: 0, top: -3, rows: [".....aaaa.....", "....a....a....", "...a......a..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -3, rows: [".....aaaa.....", "....a....a....", "...a......a..."], extras: [[-1, -1, "c"], [0, -2, "c"]] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....a....a....", "...a......a..."], extras: [[-1, -2, "c"], [0, -3, "c"]] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....a....a....", "...a......a..."], extras: [[-2, -3, "c"], [-1, -4, "c"], [0, -1, "c"]] },
+    { x: 0, top: -3, rows: [".....aaaa.....", "....a....a....", "...a......a..."], extras: [[-1, -2, "c"]] },
+  ],
+  },
+  propeller: {
+  ms: 120,
+  critterStill: { x: 0, top: -4, rows: ["..cccc.aaaa...", ".......d......", "....ababab....", "...aaaaaaaa..."], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: ["..cccc.aaaa...", ".......d......", "....ababab....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -4, rows: ["....cc.aa.....", ".......d......", "....ababab....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -4, rows: ["..aaaa.cccc...", ".......d......", "....ababab....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -4, rows: ["....aa.cc.....", ".......d......", "....ababab....", "...aaaaaaaa..."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: ["...ccc..aaa...", "......dd......", ".....abab.....", "....aaaaaa...."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: ["...ccc..aaa...", "......dd......", ".....abab.....", "....aaaaaa...."], extras: [] },
+    { x: 0, top: -4, rows: [".....cc.aa....", "......dd......", ".....abab.....", "....aaaaaa...."], extras: [] },
+    { x: 0, top: -4, rows: ["...aaa..ccc...", "......dd......", ".....abab.....", "....aaaaaa...."], extras: [] },
+    { x: 0, top: -4, rows: [".....aa.cc....", "......dd......", ".....abab.....", "....aaaaaa...."], extras: [] },
+  ],
+  },
+  "top hat": {
+  ms: 450,
+  critterStill: { x: 0, top: -5, rows: ["...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."], extras: [] },
+  critter: [
+    { x: 0, top: -5, rows: ["...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."], extras: [] },
+    { x: 0, top: -5, rows: ["...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."], extras: [] },
+    { x: 0, top: -6, rows: ["...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."], extras: [] },
+    { x: 0, top: -5, rows: ["...aaaaaaaa...", "...aaaaaaaa...", "...aaaaaaaa...", "...bbbbbbbb...", ".aaaaaaaaaaaa."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: [".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: [".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -4, rows: [".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -5, rows: [".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."], extras: [] },
+    { x: 0, top: -4, rows: [".....aaaa.....", ".....aaaa.....", ".....bbbb.....", "...aaaaaaaa..."], extras: [] },
+  ],
+  },
+  cowboy: {
+  ms: 350,
+  critterStill: { x: 0, top: -4, rows: [".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"], extras: [] },
+  critter: [
+    { x: 0, top: -4, rows: [".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"], extras: [] },
+    { x: 0, top: -4, rows: [".....aaaa.....", "b...aabbaa....", "b...aaaaaa....", ".bbbbbbbbbbbbb"], extras: [] },
+    { x: 0, top: -4, rows: [".....aaaa.....", "....aabbaa....", "b...aaaaaa...b", "bbbbbbbbbbbbbb"], extras: [] },
+    { x: 0, top: -4, rows: [".....aaaa.....", "....aabbaa...b", "....aaaaaa...b", "bbbbbbbbbbbbb."], extras: [] },
+  ],
+  onigiriStill: { x: 0, top: -4, rows: ["......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."], extras: [] },
+  onigiri: [
+    { x: 0, top: -4, rows: ["......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."], extras: [] },
+    { x: 0, top: -4, rows: ["......aa......", ".b...abba.....", ".b..aaaaaa....", "..bbbbbbbbbbb."], extras: [] },
+    { x: 0, top: -4, rows: ["......aa......", ".....abba.....", ".b..aaaaaa..b.", ".bbbbbbbbbbbb."], extras: [] },
+    { x: 0, top: -4, rows: ["......aa......", ".....abba...b.", "....aaaaaa..b.", ".bbbbbbbbbbb.."], extras: [] },
+  ],
+  },
+  bandana: {
+  ms: 200,
+  critterStill: { x: 0, top: -1, rows: ["..aaaaaaaaaa..", "..acacacacac.."], extras: [[1, -1, "b"], [0, -2, "b"], [0, 0, "b"], [-1, 0, "b"]] },
+  critter: [
+    { x: 0, top: -1, rows: ["..aaaaaaaaaa..", "..acacacacac.."], extras: [[1, -1, "b"], [0, -2, "b"], [0, 0, "b"], [-1, 0, "b"]] },
+    { x: 0, top: -1, rows: ["..aaaaaaaaaa..", "..acacacacac.."], extras: [[1, -1, "b"], [0, -1, "b"], [-1, -2, "b"], [0, 0, "b"], [-1, 1, "b"]] },
+    { x: 0, top: -1, rows: ["..aaaaaaaaaa..", "..acacacacac.."], extras: [[1, -1, "b"], [0, -2, "b"], [-1, -2, "b"], [0, 0, "b"], [-1, 0, "b"]] },
+  ],
+  onigiriStill: { x: 0, top: 0, rows: ["...aaaaaaaa...", "..acacacacac.."], extras: [[2, 0, "b"], [1, -1, "b"], [1, 1, "b"], [0, 1, "b"]] },
+  onigiri: [
+    { x: 0, top: 0, rows: ["...aaaaaaaa...", "..acacacacac.."], extras: [[2, 0, "b"], [1, -1, "b"], [1, 1, "b"], [0, 1, "b"]] },
+    { x: 0, top: 0, rows: ["...aaaaaaaa...", "..acacacacac.."], extras: [[2, 0, "b"], [1, 0, "b"], [0, -1, "b"], [1, 1, "b"], [0, 2, "b"]] },
+    { x: 0, top: 0, rows: ["...aaaaaaaa...", "..acacacacac.."], extras: [[2, 0, "b"], [1, -1, "b"], [0, -1, "b"], [1, 1, "b"], [0, 1, "b"]] },
+  ],
+  },
 };
-const ONI_HATS = {
-  'hard hat': ['.....aaaa.....', '....acaaaa....', '...bbbbbbbb...'],
-  cap: ['......aaaa', '.....aaacaa', 'bbbbbbbbbbbb'],
-  beanie: ['......cc......', '.....aaaa.....', '....aaaaaa....', '...babababa...'],
-  helmet: ['.....aaaa.....', '....aacaaa....', '...bbbbbbbb...'],
-  wizard: ['......aa......', '......aa......', '.....acaa.....', '....aaaaaa....', '...bbbbbbbb...'],
-  beret: ['......bb......', '....aaaaaa....', '..aaaaaaaaaa..', '....bbbbbb....'],
-  chef: ['....cccccc....', '....cccccc....', '.....cccc.....', '....aaaaaa....'],
-  crown: ['....a.aa.a....', '....aaaaaa....', '....acaaca....'],
-  headphones: ['.....aaaa.....', '....a....a....', '...a......a...'],
-  propeller: ['...ccc..aaa...', '......dd......', '.....abab.....', '....aaaaaa....'],
-  'top hat': ['.....aaaa.....', '.....aaaa.....', '.....bbbb.....', '...aaaaaaaa...'],
-  cowboy: ['......aa......', '.....abba.....', '.b..aaaaaa..b.', '.bbbbbbbbbbbb.'],
-  bandana: ['...aaaaaaaa.b.', '..acacacacac.b'],
-};
-const HAT_X = { cap: -3 };
-const ONI_HAT_X = { cap: -1 };
 const HAT_COLORS = {
   teal: ['#4FB3A6', '#2F7F75'], blue: ['#6F8FD8', '#4A63A3'], yellow: ['#E8B94A', '#B08429'], green: ['#6DBE6A', '#468A44'],
   purple: ['#A68BD8', '#7660A6'], pink: ['#E58BB0', '#B05E80'], sky: ['#5EC4D6', '#3A8E9C'], ink: ['#E8E4DC', '#A8A39A'],
 };
-const HAT_SHAPES = Object.keys(HATS);
+const HAT_SHAPES = Object.keys(HAT_ART);
 const HAT_COLOR_NAMES = Object.keys(HAT_COLORS);
 
-function hatSVG(hat, oni, faded) {
-  const rows = (oni ? ONI_HATS : HATS)[hat?.shape];
-  if (!rows) return '';
+// One hat frame as pixel rects.
+function hatFrame(f, fill) {
+  let out = '';
+  f.rows.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (fill[ch]) out += `<rect x="${f.x + c}" y="${f.top + r}" width="1" height="1" fill="${fill[ch]}"/>`;
+  }));
+  for (const [x, y, ch] of f.extras) out += `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill[ch]}"/>`;
+  return out;
+}
+
+// The hat: still, or (while working) its frames stacked, each shown in its
+// time slot by a CSS frame class (app.css .hf-<frames>-<ms>-<slot>).
+function hatSVG(hat, oni, faded, animate = false) {
+  const art = HAT_ART[hat?.shape];
+  if (!art) return '';
   const [main, shade] = HAT_COLORS[hat.color] || HAT_COLORS.ink;
   const fill = { a: main, b: shade, c: '#F7F4EC', d: '#0A0A0A' };
-  const x0 = (oni ? ONI_HAT_X : HAT_X)[hat.shape] || 0;
-  const top = hat.shape === 'bandana' ? (oni ? 0 : -1) : -rows.length;
-  let out = '';
-  rows.forEach((row, r) => [...row].forEach((ch, c) => {
-    if (fill[ch]) out += `<rect x="${x0 + c}" y="${top + r}" width="1" height="1" fill="${fill[ch]}"/>`;
-  }));
+  const frames = oni ? art.onigiri : art.critter;
+  let out = animate
+    ? frames.map((f, i) => `<g class="hf-${frames.length}-${art.ms}-${i}${i ? ' hfo' : ''}">${hatFrame(f, fill)}</g>`).join('')
+    : hatFrame(oni ? art.onigiriStill : art.critterStill, fill);
   if (hat.shape === 'headphones') {
     out += oni ? `<rect x="2" y="-0.5" width="1" height="2" fill="${shade}"/><rect x="11" y="-0.5" width="1" height="2" fill="${shade}"/>`
       : `<rect x="0" y="0" width="1" height="2" fill="${shade}"/><rect x="13" y="0" width="1" height="2" fill="${shade}"/>`;
@@ -202,8 +392,12 @@ function hatSVG(hat, oni, faded) {
   return `<g class="hat"${faded ? ' opacity="0.45"' : ''}>${out}</g>`;
 }
 
+// Poses of a working agent: its hat animates; every other pose keeps it still.
+const WORKING_POSES = new Set(['run', 'think', 'read', 'write', 'bash', 'web', 'plan', 'delegate', 'compact']);
+
 function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
   const bot = species === 'codex';
+  const working = WORKING_POSES.has(pose);
   if (pose === 'write') pose = 'bash'; // writing looks like bash for now
   legs = bot ? botFeet : critterLegs;
   let body = bot ? `<path class="b" d="${BOT_BODY}"/>${pose === 'exit' ? '' : BOT_NORI}` : `<path class="b" d="${BODY}"/>`, eyes, feet = legs(LEGS_A), bubble = '', grp = '';
@@ -287,7 +481,7 @@ function spriteSVG(pose, species = 'claude', hat = null, opts = {}) {
   }
   // The block's face sits half a row higher than the onigiri's.
   const face = bot ? eyes : `<g transform="translate(0 -0.5)">${eyes}</g>`;
-  const hatG = hat ? hatSVG(hat, bot, pose === 'exit') : '';
+  const hatG = hat ? hatSVG(hat, bot, pose === 'exit', working) : '';
   if (opts.bubble === false) bubble = '';
   return `<svg viewBox="0 -4 18 13" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><g class="${grp}">${body}${arms}${face}${hatG}${held}</g>${feet}${bubble}</svg>`;
 }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'agents_model.dart';
+import 'hats.dart';
 
 /// The agents app's pixel critter: Claude's flat 12×6 block with 1×2 arms
 /// at its sides, on short legs, in an 18×13 cell box (the top 4 rows hold
@@ -188,6 +189,30 @@ int critterFrame(CritterPose pose, int tick) => switch (pose) {
   CritterPose.celebrate => ((tick ~/ 4) % 2) * 10 + (tick ~/ 4) % 3,
 };
 
+/// Poses of a working agent: its hat animates in these, and stays still in
+/// every other pose (waiting, idle, hungry, error, exited…).
+bool critterPoseWorking(CritterPose p) => switch (p) {
+  CritterPose.run ||
+  CritterPose.think ||
+  CritterPose.read ||
+  CritterPose.write ||
+  CritterPose.bash ||
+  CritterPose.web ||
+  CritterPose.plan ||
+  CritterPose.delegate ||
+  CritterPose.compact => true,
+  _ => false,
+};
+
+/// The hat's frame at clock [tick] (-1 = its still version): while working
+/// it cycles through its frames at the hat's own pace.
+int critterHatFrame(String shape, CritterPose pose, int tick) {
+  final art = hatArt[shape];
+  if (art == null || !critterPoseWorking(pose)) return -1;
+  final ms = tick * CritterClock.step.inMilliseconds;
+  return (ms ~/ art.ms) % art.critter.length;
+}
+
 /// A critter sprite [width] wide (height = width × 13/18). Cells snap to
 /// whole pixels so the edges stay crisp. [cut] is the colour of the eyes
 /// (the surface behind the sprite). Animates when a [CritterScope] is
@@ -241,6 +266,9 @@ class CritterSprite extends StatefulWidget {
 
 class _CritterSpriteState extends State<CritterSprite> {
   final _frame = ValueNotifier<int>(0);
+
+  /// The hat's frame (-1 = still), from the same shared clock.
+  final _hatFrame = ValueNotifier<int>(-1);
   CritterClock? _clock;
 
   @override
@@ -273,13 +301,17 @@ class _CritterSpriteState extends State<CritterSprite> {
     if (pose != _pose) {
       if (mounted) setState(() => _pose = pose);
     }
-    _frame.value = critterFrame(pose, _clock?.value ?? 0);
+    final tick = _clock?.value ?? 0;
+    _frame.value = critterFrame(pose, tick);
+    final hat = widget.hat;
+    _hatFrame.value = hat == null ? -1 : critterHatFrame(hat.shape, pose, tick);
   }
 
   @override
   void dispose() {
     _clock?.removeListener(_onTick);
     _frame.dispose();
+    _hatFrame.dispose();
     super.dispose();
   }
 
@@ -298,6 +330,7 @@ class _CritterSpriteState extends State<CritterSprite> {
           hat: widget.hat,
           showBubble: widget.showBubble,
           frame: _frame,
+          hatFrame: _hatFrame,
         ),
       ),
     );
@@ -311,12 +344,16 @@ class _CritterPainter extends CustomPainter {
     required this.cut,
     required this.bubble,
     required this.frame,
+    required this.hatFrame,
     this.species = CritterSpecies.claude,
     this.centerBody = false,
     this.hat,
     this.showBubble = true,
   }) : pose = pose == CritterPose.write ? CritterPose.bash : pose,
-       super(repaint: frame);
+       super(repaint: Listenable.merge([frame, hatFrame]));
+
+  /// The hat's frame (-1 = its still version).
+  final ValueListenable<int> hatFrame;
 
   final CritterSpecies species;
   final bool centerBody;
@@ -568,6 +605,7 @@ class _CritterPainter extends CustomPainter {
         bob,
         pose == CritterPose.exited ? 0.45 : 1,
         cell,
+        hatFrame.value,
       );
     }
 
@@ -719,6 +757,9 @@ class _CritterPainter extends CustomPainter {
   /// Paints [hat]: its bitmap rows end on y -1 (just above the head); "a" is
   /// the hat's colour, "b" its shade, "c" a highlight, "d" near-black. The
   /// onigiri gets a narrower version that sits down over its tip.
+  /// Paints [hat] ([frameIndex] < 0: its still version): bitmap rows at the
+  /// frame's (x, top), shifted by [dy] so it rides the body; "a" is the
+  /// hat's colour, "b" its shade, "c" a highlight, "d" near-black.
   static void _paintHat(
     Canvas canvas,
     AgentHat hat,
@@ -726,9 +767,14 @@ class _CritterPainter extends CustomPainter {
     double dy,
     double opacity,
     Rect Function(double, double, double, double) cell,
+    int frameIndex,
   ) {
-    final rows = (onigiri ? _onigiriHats : _hats)[hat.shape];
-    if (rows == null) return;
+    final art = hatArt[hat.shape];
+    if (art == null) return;
+    final frames = onigiri ? art.onigiri : art.critter;
+    final f = frameIndex < 0
+        ? (onigiri ? art.onigiriStill : art.critterStill)
+        : frames[frameIndex % frames.length];
     final (main, shade) = hatColor(hat.color);
     Paint p(Color c) => Paint()
       ..color = c.withValues(alpha: opacity)
@@ -739,15 +785,21 @@ class _CritterPainter extends CustomPainter {
       'c': p(_hatLight),
       'd': p(_hatDark),
     };
-    final x0 = (onigiri ? _onigiriHatX : _hatX)[hat.shape] ?? 0;
-    var top = -rows.length + dy;
-    if (hat.shape == 'bandana') top = (onigiri ? 0 : -1) + dy;
-    for (final (r, row) in rows.indexed) {
+    for (final (r, row) in f.rows.indexed) {
       for (var c = 0; c < row.length; c++) {
         final paint = paints[row[c]];
         if (paint != null) {
-          canvas.drawRect(cell(x0 + c.toDouble(), top + r, 1, 1), paint);
+          canvas.drawRect(
+            cell((f.x + c).toDouble(), f.top + r + dy, 1, 1),
+            paint,
+          );
         }
+      }
+    }
+    for (final (x, y, key) in f.extras) {
+      final paint = paints[key];
+      if (paint != null) {
+        canvas.drawRect(cell(x.toDouble(), y + dy, 1, 1), paint);
       }
     }
     if (hat.shape == 'headphones') {
@@ -765,133 +817,6 @@ class _CritterPainter extends CustomPainter {
 
   static const _hatLight = Color(0xFFF7F4EC);
   static const _hatDark = Color(0xFF0A0A0A);
-
-  /// Hats on the critter's flat head (14 cells wide).
-  static const _hats = {
-    'hard hat': [
-      '....aaaaa.....',
-      '...acaaaaa....',
-      '..aaaaaaaaa...',
-      '.bbbbbbbbbbbb.',
-    ],
-    // Baseball cap: the brim runs long to the left (rows start at x -3),
-    // clear of the bubbles at the top right.
-    'cap': ['........aaaaaa', '.......aaaaacaa', 'bbbbbbbbbbbbbbb'],
-    'beanie': [
-      '.....cc.......',
-      '....aaaaaa....',
-      '...aaaaaaaa...',
-      '..babababab...',
-    ],
-    'helmet': [
-      '....aaaaaa....',
-      '...aaaaaaaa...',
-      '..aaaacaaaaa..',
-      '..bbbbbbbbbb..',
-    ],
-    'wizard': [
-      '........a.....',
-      '.......aa.....',
-      '......aaca....',
-      '.....aaaaaa...',
-      '..bbbbbbbbbb..',
-    ],
-    'beret': [
-      '......b.......',
-      '...aaaaaaaa...',
-      '..aaaaaaaaaaa.',
-      '...bbbbbbbb...',
-    ],
-    'chef': [
-      '...cc.cc.cc...',
-      '..cccccccccc..',
-      '...cccccccc...',
-      '...aaaaaaaa...',
-    ],
-    'crown': [
-      '...a..aa..a...',
-      '...aa.aa.aa...',
-      '...aaaaaaaa...',
-      '...acaacaaca..',
-    ],
-    'headphones': ['....aaaaaa....', '...a......a...', '..a........a..'],
-    'propeller': [
-      '..cccc.aaaa...',
-      '.......d......',
-      '....ababab....',
-      '...aaaaaaaa...',
-    ],
-    'top hat': [
-      '...aaaaaaaa...',
-      '...aaaaaaaa...',
-      '...aaaaaaaa...',
-      '...bbbbbbbb...',
-      '.aaaaaaaaaaaa.',
-    ],
-    'cowboy': [
-      '.....aaaa.....',
-      '....aabbaa....',
-      'b...aaaaaa...b',
-      'bbbbbbbbbbbbbb',
-    ],
-    'bandana': ['..aaaaaaaaaa.b', '..acacacacac.b'],
-  };
-  static const _hatX = {'cap': -3};
-
-  /// The same hats for the onigiri: narrower, centred on its apex and
-  /// sitting down over it (the last row lies on the triangle at y -1).
-  static const _onigiriHats = {
-    'hard hat': ['.....aaaa.....', '....acaaaa....', '...bbbbbbbb...'],
-    'cap': ['......aaaa', '.....aaacaa', 'bbbbbbbbbbbb'],
-    'beanie': [
-      '......cc......',
-      '.....aaaa.....',
-      '....aaaaaa....',
-      '...babababa...',
-    ],
-    'helmet': ['.....aaaa.....', '....aacaaa....', '...bbbbbbbb...'],
-    'wizard': [
-      '......aa......',
-      '......aa......',
-      '.....acaa.....',
-      '....aaaaaa....',
-      '...bbbbbbbb...',
-    ],
-    'beret': [
-      '......bb......',
-      '....aaaaaa....',
-      '..aaaaaaaaaa..',
-      '....bbbbbb....',
-    ],
-    'chef': [
-      '....cccccc....',
-      '....cccccc....',
-      '.....cccc.....',
-      '....aaaaaa....',
-    ],
-    'crown': ['....a.aa.a....', '....aaaaaa....', '....acaaca....'],
-    'headphones': ['.....aaaa.....', '....a....a....', '...a......a...'],
-    'propeller': [
-      '...ccc..aaa...',
-      '......dd......',
-      '.....abab.....',
-      '....aaaaaa....',
-    ],
-    'top hat': [
-      '.....aaaa.....',
-      '.....aaaa.....',
-      '.....bbbb.....',
-      '...aaaaaaaa...',
-    ],
-    'cowboy': [
-      '......aa......',
-      '.....abba.....',
-      '.b..aaaaaa..b.',
-      '.bbbbbbbbbbbb.',
-    ],
-    'bandana': ['...aaaaaaaa.b.', '..acacacacac.b'],
-  };
-  static const _onigiriHatX = {'cap': -1};
 
   static const _flagInk = Color(0xFFE8E4DC);
 
@@ -956,6 +881,7 @@ class _CritterPainter extends CustomPainter {
       old.species != species ||
       old.centerBody != centerBody ||
       old.hat != hat ||
+      old.hatFrame != hatFrame ||
       old.showBubble != showBubble ||
       old.frame != frame;
 }
