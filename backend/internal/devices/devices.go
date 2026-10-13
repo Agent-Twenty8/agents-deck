@@ -233,14 +233,14 @@ func boardName(typ, id string) string {
 		}
 		return b.String()
 	}
-	t, i := clean(typ), clean(id)
+	t, i := clean(typ), strings.ReplaceAll(clean(id), "-", "")
 	if t == "" {
 		t = "board"
 	}
 	if len(t) > 20 {
 		t = t[:20]
 	}
-	if len(i) > 6 {
+	if len(i) > 8 { // a long id (a MAC): its last 6 characters
 		i = i[len(i)-6:]
 	}
 	if i == "" {

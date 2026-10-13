@@ -33,7 +33,8 @@ Tap a tile for its card:
 |---|---|
 | **Menu bar** | A critter icon that turns orange when an agent needs you; the deck drops down in the top-right corner. Esc, the ‹ button or a click elsewhere hides it; right-click opens the web dashboard. |
 | **Browser** | `agentctl web` opens the dashboard with a one-time login link. It has a grid view and a panel view that mirrors the 720×720 desk panel. |
-| **Desk panel** | A 4″ 720×720 touch panel (Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi, TLS with a pinned certificate. Cards close with an edge swipe. |
+| **Desk panel** | A 4″ 720×720 touch panel (Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi: TLS 1.3 with its own client certificate (`agentctl pair desk-panel --bundle -`). Cards close with an edge swipe. |
+| **Serial boards** | ESP32 boards on USB with Deck Link: see below. |
 | **Terminal** | `agentctl ls`, `sessions`, `resume`… Agent terminals are tmux sessions you attach to with `agentctl attach`, or jump to with **focus terminal**. |
 
 ## Codex sessions
@@ -75,6 +76,26 @@ If the tmux server dies under live agents (a crash, a reboot), they are marked *
 ## Simulated agents
 
 `agentctl sim start --root ~/dev --slots 12` fills the board with simulated agents that "work" on the real projects under `~/dev`: they read, edit, run commands, ask questions, hit errors and sometimes compact. They're read-only (they list file names and never open, change or run anything). `agentctl sim stop` removes them.
+
+## Serial boards (Deck Link)
+
+Small boards (ESP32 and the like) connect over USB serial with Deck Link, a protobuf protocol with the
+same agents, statuses, prompts and actions as the web API ([protocol](link/protocol.md)). The
+[firmware kit](../firmware/deck-link) does the protocol; its examples are a status LED, an OLED tile
+with a button, and a rotary-encoder knob.
+
+```sh
+agentctl link ports                      # USB serial ports that look like boards
+agentctl link add /dev/cu.usbmodem1101   # the daemon only ever opens registered ports
+agentctl devices approve oled-tile-3fa9c1
+agentctl devices scope oled-tile-3fa9c1 act   # to let it answer prompts
+agentctl link                            # what's connected
+```
+
+A new board waits for approval and starts with view-only access. The daemon lets go of a port while
+another program (a flasher, a serial monitor) has it open. `agentctl link sim` is a board without
+hardware; `agentctl link check <port>` tests a board's firmware against a demo deck. To build a new
+device, see [link/new-device.md](link/new-device.md).
 
 ## Settings
 

@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -137,6 +139,24 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 	s.Audit.Log(devices.AuditEntry{Device: name, Action: "pair", Status: http.StatusOK, Detail: "scope " + string(scope)})
 	log.Printf("paired %s (%s)", name, scope)
 	writeJSON(w, http.StatusOK, map[string]string{"name": name, "cert": string(certPEM), "ca": string(s.CA.PEM)})
+}
+
+// Dispatch runs one API request for a device that isn't on the network
+// listener (a Deck Link board): the same scope check, handlers and audit log.
+// It returns the status code and the response body.
+func (s *Server) Dispatch(d devices.Device, method, path string, body []byte) (int, []byte) {
+	if need := NeedScope(method, path); !d.Scope.Allows(need) {
+		b, _ := json.Marshal(map[string]string{"error": d.Name + " may " + string(d.Scope) + ", this needs " + string(need)})
+		return http.StatusForbidden, b
+	}
+	r := httptest.NewRequest(method, path, bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.audited(d.Name, s.sharedAPI()).ServeHTTP(w, r)
+	if s.Devices != nil {
+		s.Devices.Seen(d.Name)
+	}
+	return w.Code, w.Body.Bytes()
 }
 
 // ---- audit -------------------------------------------------------------------

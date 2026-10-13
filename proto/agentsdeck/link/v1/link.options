@@ -1,0 +1,72 @@
+# nanopb limits for Deck Link v1: the firmware's fixed buffers. The deck
+# clips text to these (UTF-8 safe, with "…") and caps lists, so a board never
+# receives more than it can hold. Keep in step with internal/link/limits.go
+# (a Go test checks).
+agentsdeck.link.v1.Hello.board_id        max_size:40
+agentsdeck.link.v1.Hello.type            max_size:32
+agentsdeck.link.v1.Hello.firmware        max_size:24
+agentsdeck.link.v1.Hello.inputs          max_count:4
+agentsdeck.link.v1.Welcome.server_name   max_size:48
+agentsdeck.link.v1.Welcome.server_version max_size:24
+agentsdeck.link.v1.Welcome.device_name   max_size:40
+agentsdeck.link.v1.Server.name           max_size:48
+agentsdeck.link.v1.Server.version        max_size:24
+agentsdeck.link.v1.AgentRemoved.id       max_size:12
+agentsdeck.link.v1.Agent.id              max_size:12
+agentsdeck.link.v1.Agent.title           max_size:64
+agentsdeck.link.v1.Agent.ai_title        max_size:96
+agentsdeck.link.v1.Agent.cwd             max_size:128
+agentsdeck.link.v1.Agent.folder          max_size:48
+agentsdeck.link.v1.Agent.branch          max_size:48
+agentsdeck.link.v1.Agent.model           max_size:40
+agentsdeck.link.v1.Agent.model_label     max_size:24
+agentsdeck.link.v1.Agent.effort          max_size:12
+agentsdeck.link.v1.Agent.last_prompt     max_size:160
+agentsdeck.link.v1.Agent.error           max_size:128
+agentsdeck.link.v1.Agent.subagents       max_count:6
+agentsdeck.link.v1.Activity.tool         max_size:24
+agentsdeck.link.v1.Activity.detail       max_size:128
+agentsdeck.link.v1.Prompt.id             max_size:16
+agentsdeck.link.v1.Prompt.title          max_size:96
+agentsdeck.link.v1.Prompt.detail         max_size:512
+agentsdeck.link.v1.Prompt.context        max_size:96
+agentsdeck.link.v1.Prompt.options        max_count:6
+agentsdeck.link.v1.Option.key            max_size:8
+agentsdeck.link.v1.Option.label          max_size:96
+agentsdeck.link.v1.Hat.shape             max_size:16
+agentsdeck.link.v1.Hat.color             max_size:12
+agentsdeck.link.v1.Subagent.id           max_size:12
+agentsdeck.link.v1.Subagent.title        max_size:64
+agentsdeck.link.v1.Subagent.type         max_size:24
+agentsdeck.link.v1.Subagent.tool         max_size:24
+agentsdeck.link.v1.Answer.agent_id       max_size:12
+agentsdeck.link.v1.Answer.prompt_id      max_size:16
+agentsdeck.link.v1.Answer.key            max_size:8
+agentsdeck.link.v1.Focus.agent_id        max_size:12
+agentsdeck.link.v1.Interrupt.agent_id    max_size:12
+agentsdeck.link.v1.Dismiss.agent_id      max_size:12
+agentsdeck.link.v1.Resume.agent_id       max_size:12
+agentsdeck.link.v1.Move.agent_id         max_size:12
+agentsdeck.link.v1.Order.agent_ids       max_count:32 max_size:12
+agentsdeck.link.v1.SetHat.agent_id       max_size:12
+agentsdeck.link.v1.SetHat.folder         max_size:128
+agentsdeck.link.v1.SetHat.shape          max_size:16
+agentsdeck.link.v1.SetHat.color          max_size:12
+agentsdeck.link.v1.AddLive.session_id    max_size:40
+agentsdeck.link.v1.Result.error          max_size:96
+agentsdeck.link.v1.HatList.shapes        max_count:16 max_size:16
+agentsdeck.link.v1.HatList.colors        max_count:12 max_size:12
+agentsdeck.link.v1.HatList.overrides     max_count:8
+agentsdeck.link.v1.HatOverride.folder    max_size:128
+agentsdeck.link.v1.HatOverride.shape     max_size:16
+agentsdeck.link.v1.HatOverride.color     max_size:12
+agentsdeck.link.v1.LiveSessions.sessions max_count:8
+agentsdeck.link.v1.LiveSession.session_id max_size:40
+agentsdeck.link.v1.LiveSession.title     max_size:64
+agentsdeck.link.v1.LiveSession.cwd       max_size:128
+agentsdeck.link.v1.LiveSession.folder    max_size:48
+agentsdeck.link.v1.RestoreResult.results max_count:16
+agentsdeck.link.v1.Restored.id           max_size:12
+agentsdeck.link.v1.Restored.title        max_size:64
+agentsdeck.link.v1.Restored.action       max_size:12
+agentsdeck.link.v1.Restored.error        max_size:96

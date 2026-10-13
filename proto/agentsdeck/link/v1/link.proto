@@ -1,0 +1,342 @@
+// Deck Link v1: the agents deck over USB serial, for ESP32 boards and the
+// like. The single source of truth for the Go daemon (protoc-gen-go) and the
+// firmware kit (nanopb). docs/link/protocol.md explains framing, the
+// handshake and every message; link.options sets the size limits both sides
+// use (the deck clips longer text to them).
+//
+// Every message travels in a Frame. The board starts with Hello; the deck
+// answers Welcome. Requests from the board carry a seq the deck echoes in its
+// Result (or its typed reply); events from the deck have seq 0.
+syntax = "proto3";
+
+package agentsdeck.link.v1;
+
+option go_package = "github.com/brushknight/agents-deck/backend/internal/link/linkpb";
+
+message Frame {
+  uint32 seq = 1;
+  oneof body {
+    // Handshake and liveness.
+    Hello hello = 10;              // board → deck, first frame
+    Welcome welcome = 11;          // deck → board; again when approval or scope changes
+    Ping ping = 12;                // either way
+    Pong pong = 13;                // the answer to a Ping, same seq
+    Subscribe subscribe = 14;      // board → deck: which agents and fields to send
+
+    // State, deck → board.
+    SnapshotBegin snapshot_begin = 20;  // a full state follows: one AgentChanged per agent…
+    AgentChanged agent_changed = 21;    // …and later, one per agent that changed
+    AgentRemoved agent_removed = 22;
+    SnapshotEnd snapshot_end = 23;
+
+    // Commands, board → deck: one per web API endpoint (docs/protocol.md).
+    Answer answer = 30;            // POST /v1/agents/{id}/answer
+    Focus focus = 31;              // POST /v1/agents/{id}/focus
+    Interrupt interrupt = 32;      // POST /v1/agents/{id}/interrupt
+    Dismiss dismiss = 33;          // POST /v1/agents/{id}/dismiss
+    Move move = 34;                // POST /v1/agents/{id}/move
+    Order order = 35;              // POST /v1/order
+    Resume resume = 36;            // POST /v1/agents/{id}/resume
+    Restore restore = 37;          // POST /v1/restore
+    SetHat set_hat = 38;           // POST /v1/agents/{id}/hat, POST /v1/hats
+    ListHats list_hats = 39;       // GET /v1/hats
+    ListLive list_live = 40;       // GET /v1/live
+    AddLive add_live = 41;         // POST /v1/live/{session}/add
+    GetState get_state = 42;       // GET /v1/state: resend the snapshot
+
+    // Replies, deck → board, with the request's seq.
+    Result result = 50;            // every command without a typed reply
+    HatList hat_list = 51;         // reply to ListHats
+    LiveSessions live_sessions = 52;  // reply to ListLive
+    RestoreResult restore_result = 53;  // reply to Restore
+  }
+}
+
+// ---- handshake -----------------------------------------------------------
+
+message Hello {
+  uint32 protocol = 1;       // 1
+  string board_id = 2;       // stable and unique: the MAC or USB serial number
+  string type = 3;           // what kind of device, e.g. "oled-tile"
+  string firmware = 4;       // its firmware version, e.g. "1.2.0"
+  Display display = 5;       // absent: no screen
+  repeated Input inputs = 6; // what a person can press or turn
+  uint32 max_frame = 7;      // the largest frame it accepts (bytes, ≥ 512); 0 = 4096
+}
+
+message Display {
+  uint32 width = 1;
+  uint32 height = 2;
+  bool color = 3;
+}
+
+enum Input {
+  INPUT_UNSPECIFIED = 0;
+  INPUT_BUTTON = 1;
+  INPUT_ENCODER = 2;
+  INPUT_TOUCH = 3;
+  INPUT_KNOB = 4;  // a motorized/haptic knob
+}
+
+message Welcome {
+  uint32 protocol = 1;        // 1
+  string server_name = 2;     // the Mac's name
+  string server_version = 3;  // agentctl version
+  string device_name = 4;     // the board's name on the deck (agentctl devices)
+  Scope scope = 5;
+  bool approved = 6;          // false: waiting for `agentctl devices approve`; nothing else is sent until then
+}
+
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  SCOPE_VIEW = 1;   // state only
+  SCOPE_ACT = 2;    // also answer, focus, interrupt, move, order, hats
+  SCOPE_ADMIN = 3;  // also dismiss, resume, restore, live sessions
+}
+
+message Ping {
+  uint64 time_ms = 1;  // sender's clock, echoed in the Pong
+}
+
+message Pong {
+  uint64 time_ms = 1;
+}
+
+// Which agents and which of their fields the board wants. Sending it again
+// replaces the previous one and triggers a fresh snapshot.
+message Subscribe {
+  uint32 first_slot = 1;  // board positions first_slot … first_slot+slot_count-1
+  uint32 slot_count = 2;  // 0 = every agent
+  uint32 fields = 3;      // FieldGroup bits; 0 = TILE
+}
+
+// Bits of Subscribe.fields. id and slot are always sent.
+enum FieldGroup {
+  FIELDS_NONE = 0;
+  FIELDS_TILE = 1;       // title, tool, status, status_since, folder, context, unseen, lost, focused, external, hat, activity.tool, subagent_count
+  FIELDS_CARD = 2;       // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
+  FIELDS_PROMPT = 4;     // waiting
+  FIELDS_NUMBERS = 8;    // tokens, cost_usd, turns
+}
+
+// ---- state ---------------------------------------------------------------
+
+message SnapshotBegin {
+  Server server = 1;
+  uint32 agent_count = 2;  // agents on the whole deck (not just the subscribed slots)
+}
+
+message SnapshotEnd {}
+
+message Server {
+  string name = 1;
+  string version = 2;
+  int64 time_ms = 3;
+}
+
+message AgentChanged {
+  Agent agent = 1;  // complete for the subscribed field groups
+}
+
+message AgentRemoved {
+  string id = 1;
+}
+
+enum Tool {
+  TOOL_UNSPECIFIED = 0;
+  TOOL_CLAUDE = 1;
+  TOOL_CODEX = 2;
+  TOOL_GEMINI = 3;
+  TOOL_SHELL = 4;
+  TOOL_OPENCODE = 5;
+  TOOL_SIM = 6;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_STARTING = 1;
+  STATUS_RUNNING = 2;
+  STATUS_WAITING = 3;   // blocked on you: see Agent.waiting
+  STATUS_IDLE = 4;
+  STATUS_ERROR = 5;
+  STATUS_EXITED = 6;
+}
+
+// Agent mirrors the JSON Agent of docs/protocol.md field for field (times as
+// Unix milliseconds); a CI test keeps them in step.
+message Agent {
+  string id = 1;
+  uint32 slot = 2;
+  string title = 3;
+  string ai_title = 4;
+  Tool tool = 5;
+  Status status = 6;
+  int64 status_since_ms = 7;
+  string cwd = 8;
+  string folder = 9;
+  string branch = 10;
+  string model = 11;
+  string model_label = 12;
+  string effort = 13;
+  Activity activity = 14;
+  string last_prompt = 15;
+  Prompt waiting = 16;
+  string error = 17;          // the error message, when status is ERROR
+  Tokens tokens = 18;
+  Context context = 19;
+  double cost_usd = 20;
+  uint32 turns = 21;
+  bool focused = 22;
+  bool attached = 23;
+  bool resumable = 24;
+  bool lost = 25;
+  bool unseen = 26;
+  bool external = 27;
+  Hat hat = 28;
+  repeated Subagent subagents = 29;
+  uint32 subagent_count = 30;  // len(subagents), sent with TILE so a small board can show it
+  int64 started_at_ms = 31;
+  int64 updated_at_ms = 32;
+}
+
+message Activity {
+  string tool = 1;
+  string detail = 2;
+}
+
+message Prompt {
+  string id = 1;      // send it back in Answer
+  PromptKind kind = 2;
+  string title = 3;
+  string detail = 4;
+  string context = 5;
+  repeated Option options = 6;  // empty for INPUT: answer in the terminal
+}
+
+enum PromptKind {
+  PROMPT_UNSPECIFIED = 0;
+  PROMPT_PERMISSION = 1;
+  PROMPT_QUESTION = 2;
+  PROMPT_INPUT = 3;
+}
+
+message Option {
+  string key = 1;
+  string label = 2;
+  bool primary = 3;
+}
+
+message Tokens {
+  int64 input = 1;
+  int64 output = 2;
+  int64 cache_read = 3;
+  int64 cache_write = 4;
+}
+
+message Context {
+  int64 used = 1;
+  int64 window = 2;
+}
+
+message Hat {
+  string shape = 1;
+  string color = 2;
+  bool auto = 3;
+}
+
+message Subagent {
+  string id = 1;
+  string title = 2;
+  string type = 3;
+  string tool = 4;
+}
+
+// ---- commands ------------------------------------------------------------
+
+message Answer {
+  string agent_id = 1;
+  string prompt_id = 2;  // Agent.waiting.id; a stale one gets 409
+  string key = 3;        // one of its options' keys
+}
+
+message Focus { string agent_id = 1; }
+message Interrupt { string agent_id = 1; }
+message Dismiss { string agent_id = 1; }
+message Resume { string agent_id = 1; }
+
+message Move {
+  string agent_id = 1;
+  uint32 slot = 2;  // 0…255
+}
+
+message Order {
+  repeated string agent_ids = 1;
+}
+
+message Restore {}
+
+// A hat for the agent's working folder (agent_id), or for a folder by path.
+message SetHat {
+  string agent_id = 1;
+  string folder = 2;
+  string shape = 3;  // a shape name, or "none"
+  string color = 4;  // optional
+  bool auto = 5;     // back to the automatic hat
+}
+
+message ListHats {}
+message ListLive {}
+
+message AddLive {
+  string session_id = 1;
+  int32 slot = 2;  // -1: anywhere
+}
+
+message GetState {}
+
+// ---- replies ---------------------------------------------------------------
+
+// The outcome of a command, with the web API's status code: 204 done,
+// 400 bad request, 403 beyond the board's scope, 404 no such agent, 409 the
+// prompt changed, 501 not available, 500 failed.
+message Result {
+  uint32 code = 1;
+  string error = 2;
+}
+
+message HatList {
+  repeated string shapes = 1;
+  repeated string colors = 2;
+  repeated HatOverride overrides = 3;
+}
+
+message HatOverride {
+  string folder = 1;
+  string shape = 2;
+  string color = 3;
+}
+
+message LiveSessions {
+  repeated LiveSession sessions = 1;
+}
+
+message LiveSession {
+  string session_id = 1;
+  string title = 2;
+  string cwd = 3;
+  string folder = 4;
+  int64 started_ms = 5;
+  bool on_board = 6;
+  bool background = 7;
+}
+
+message RestoreResult {
+  repeated Restored results = 1;
+}
+
+message Restored {
+  string id = 1;
+  string title = 2;
+  string action = 3;  // resumed | relaunched | removed | failed
+  string error = 4;
+}

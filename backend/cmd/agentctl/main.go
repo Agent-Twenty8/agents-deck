@@ -30,6 +30,7 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/demo"
 	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
+	"github.com/brushknight/agents-deck/backend/internal/link"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/pki"
@@ -70,6 +71,12 @@ const usage = `agentctl — agents-terminal
                                  or (--bundle) a key and certificate to copy to it over SSH
   agentctl devices [revoke|approve|remove <name> | scope <name> <scope>]
                                  paired devices and serial boards; cut one off, approve a board
+  agentctl link [ports | add <port> [--baud N] | rm <port>]
+                                 Deck Link serial boards: status, find ports, register one
+  agentctl link sim [--id ID] [--fields tile,card,prompt,numbers] [--json]
+                                 be a board without hardware (type commands: answer, focus, …)
+  agentctl link check <port> [--baud N] [--seconds N]
+                                 test a board's firmware against a demo deck (stop the daemon's use: link rm)
   agentctl serve [--demo]        run the daemon (normally via launchd)
   agentctl install               install + start the launchd agent
   agentctl set term iterm|tmux|window
@@ -139,6 +146,8 @@ func main() {
 		err = pair(args)
 	case "devices":
 		err = devicesCmd(args)
+	case "link":
+		err = linkCmd(args)
 	case "install":
 		err = install()
 	case "version", "--version":
@@ -802,7 +811,7 @@ func devicesCmd(args []string) error {
 			if err := call("POST", "/local/devices/"+args[1]+"/"+action, nil, nil); err != nil {
 				return err
 			}
-			fmt.Printf("%s: %sd\n", args[1], strings.TrimSuffix(action, "e"))
+			fmt.Printf("%s: %s\n", args[1], map[string]string{"revoke": "revoked", "approve": "approved", "remove": "removed"}[action])
 			return nil
 		}
 		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin]")
@@ -870,6 +879,9 @@ type fileConfig struct {
 	daemon.Config
 	LocalAddr  string `json:"localAddr"`
 	DeviceAddr string `json:"deviceAddr"` // "" disables the network listener (paired devices)
+	Link       struct {
+		Ports []link.PortConfig `json:"ports"` // serial ports with Deck Link boards (agentctl link add)
+	} `json:"link"`
 }
 
 // lanIPs are this Mac's non-loopback IPv4 addresses.
@@ -947,6 +959,10 @@ func serve(args []string) error {
 		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
 		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()}}
 	errc := make(chan error, 4)
+	links := &link.Manager{Deck: link.ServerDeck{S: srv}, Ports: func() []link.PortConfig { return loadConfig().Link.Ports }}
+	go links.Run(context.Background())
+	srv.LinkUpgrade = link.UpgradeHandler(link.ServerDeck{S: srv})
+	srv.LinkStatus = func() any { return links.Status() }
 	var deviceTLS *tls.Config
 	if cfg.DeviceAddr != "" {
 		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))

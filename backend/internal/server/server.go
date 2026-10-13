@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/devices"
@@ -87,7 +88,19 @@ type Server struct {
 	DeviceURL string
 	// ServerFingerprint is the network listener's certificate SHA-256.
 	ServerFingerprint string
-	logins            loginCodes
+	// LinkUpgrade turns POST /local/link into a Deck Link stream (a board
+	// without hardware: agentctl link sim); LinkStatus lists serial ports.
+	LinkUpgrade http.HandlerFunc
+	LinkStatus  func() any
+	logins      loginCodes
+	apiOnce     sync.Once
+	apiMux      *http.ServeMux
+}
+
+// sharedAPI is one API mux for in-process callers (Dispatch).
+func (s *Server) sharedAPI() *http.ServeMux {
+	s.apiOnce.Do(func() { s.apiMux = s.api() })
+	return s.apiMux
 }
 
 const sessionCookie = "agentsterm_session"
@@ -382,6 +395,16 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", s.audited("local", api))
 	s.localDevices(mux)
+	if s.LinkUpgrade != nil {
+		mux.HandleFunc("POST /local/link", s.LinkUpgrade)
+	}
+	mux.HandleFunc("GET /local/link", func(w http.ResponseWriter, r *http.Request) {
+		var ports any = []any{}
+		if s.LinkStatus != nil {
+			ports = s.LinkStatus()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ports": ports})
+	})
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err := lc.Hook(r.URL.Query().Get("agent"), body); err != nil {

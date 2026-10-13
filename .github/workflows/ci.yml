@@ -18,12 +18,18 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache: false # standard library only: nothing to cache
-      - run: brew install tmux # daemon tests drive a throwaway tmux server
+      - run: brew install tmux protobuf # tmux: daemon tests; protoc: the Deck Link drift check
       - name: vet and test
         working-directory: backend
         run: |
           go vet ./...
           go test -race ./...
+      - name: Deck Link code matches link.proto
+        working-directory: backend
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10
+          PATH="$(go env GOPATH)/bin:$PATH" go generate ./internal/link
+          git diff --exit-code -I '^// .protoc  ' -- internal/link/linkpb # the protoc version line may differ
       - name: cross-compile (targets the release matrix will grow into)
         working-directory: backend
         run: |

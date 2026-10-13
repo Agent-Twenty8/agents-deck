@@ -19,9 +19,11 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | | |
 |---|---|
 | <img src="docs/images/menubar-deck-v2.png" alt="the deck dropped down from the menu bar"> | <img src="docs/images/web-board-v2.png" alt="web dashboard"> |
-| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. | **Browser and phone.** The same board, a panel view, and every agent's card. |
+| **Menu bar.** Click the critter and the deck drops down; it turns orange when an agent needs you. | **Browser.** The same board, a panel view, and every agent's card. |
 | <img src="docs/images/panel-board-v2.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
+
+**Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from.
 
 Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. It wears a pixel hat picked by its working folder, so a project's agents look alike; tap the critter to pick another. The full tour is in [docs/features.md](docs/features.md).
 
@@ -93,10 +95,11 @@ Each agent gets its own hook settings, so your global `~/.claude/settings.json` 
 
 ## Security & privacy
 
-- **Nothing leaves your machine:** no telemetry, no update checks, no third-party Go dependencies.
+- **Nothing leaves your machine:** no telemetry, no update checks. The only Go dependency is Google's protobuf module.
 - **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks.
 - **The menu bar app** uses the daemon's unix socket: nothing crosses the network.
 - **The desk panel** connects over TLS 1.3 with its own client certificate, signed by the deck's local CA (its key is in the macOS Keychain). Each device has a scope (view, act or admin), shows up in `agentctl devices`, can be revoked on its own, and every action it takes lands in an audit log.
+- **Serial boards** have to be registered (`agentctl link add`) and approved once (`agentctl devices approve`), start with view-only access, and are logged and revocable like the panel.
 - **Codex files are only read.** App control is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
 - **Secrets** live in `~/.local/share/agents-terminal/` (`0700` / `0600`).
 
@@ -106,11 +109,13 @@ The per-project pixel hats were inspired by [“9 NEW Claude Mods that can truly
 
 ## Docs
 
-[Features](docs/features.md) · [Protocol](docs/protocol.md) · [Releasing](docs/releasing.md) · [Roadmap](docs/roadmap.md)
+[Features](docs/features.md) · [Protocol](docs/protocol.md) · [Deck Link](docs/link/protocol.md) · [New device](docs/link/new-device.md) · [Releasing](docs/releasing.md) · [Roadmap](docs/roadmap.md)
 
 | path | |
 |---|---|
 | `backend/` | Go daemon and CLI (`agentctl`), with the web UI embedded. `go test -race ./...` |
 | `clients/flutter/agents_ui` | The deck UI as a Flutter package, shared by the desk panel and the menu bar app. |
 | `clients/macos` | The menu bar app (Flutter + a small Swift shell). |
+| `proto/` | `link.proto`: the Deck Link contract for serial boards. |
+| `firmware/deck-link` | The C firmware kit for Deck Link boards (ESP32), with examples. |
 | `docs/fixtures/state.json` | The sample fleet behind demo mode, the web fixture view and the tests. |
