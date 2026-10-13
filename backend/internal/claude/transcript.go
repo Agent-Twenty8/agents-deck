@@ -27,6 +27,7 @@ type line struct {
 	AITitle   string `json:"aiTitle"`
 	Custom    string `json:"customTitle"`
 	IsAPIErr  bool   `json:"isApiErrorMessage"`
+	Effort    string `json:"effort"` // the reasoning effort of an assistant turn (low … max)
 	Message   *struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
@@ -63,7 +64,7 @@ func Tail(e *store.Entry) bool {
 	// numbers of half-read history (a restart re-reads from the start).
 	changed := false
 	var lastCtx int64
-	var lastModel string
+	var lastModel, lastEffort string
 	for range maxChunks {
 		buf, _ := io.ReadAll(io.LimitReader(f, maxRead))
 		if len(buf) == 0 {
@@ -119,12 +120,18 @@ func Tail(e *store.Entry) bool {
 				e.SetUsage(l.Message.ID, l.Message.Model, model.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite})
 				lastCtx = u.Input + u.CacheRead + u.CacheWrite
 				lastModel = l.Message.Model
+				if l.Effort != "" {
+					lastEffort = l.Effort
+				}
 				if e.A.Status == model.Error {
 					e.SetStatus(model.Running) // recovered: a real reply arrived
 				}
 				changed = true
 			}
 		}
+	}
+	if lastEffort != "" && lastEffort != e.A.Effort {
+		e.A.Effort, changed = lastEffort, true
 	}
 	if lastModel != "" {
 		e.A.Model = lastModel

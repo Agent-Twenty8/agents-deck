@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/brushknight/agents-deck/backend/internal/claude"
+	"github.com/brushknight/agents-deck/backend/internal/header"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
 	"github.com/brushknight/agents-deck/backend/internal/server"
@@ -43,7 +44,8 @@ type Daemon struct {
 	mu        sync.Mutex
 	lastFocus time.Time
 	iterm     itermLink
-	reporting map[string]bool // ttys we asked to report focus
+	reporting map[string]bool                 // ttys we asked to report focus
+	headers   map[string][header.Lines]string // tmux session -> header lines it shows
 	codex     codexWatch
 	front     string // tmux session of the focused terminal (last tick)
 
@@ -150,6 +152,7 @@ func (d *Daemon) Run() {
 		if len(died) >= 2 && !tmux.ServerRunning() {
 			d.markLost(died, "tmux server stopped")
 		}
+		d.syncHeaders(live)
 	}
 }
 

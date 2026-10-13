@@ -83,8 +83,14 @@ const TitleFormat = "#{?#{m/r:[A-Za-z0-9],#{pane_title}},#{s/^[^A-Za-z0-9]+ //:p
 func ServerDefaults() {
 	native := NativeMouse()
 	mouse, screen := "on", []string{"set-option", "-su", "terminal-overrides[90]"}
+	// Hyperlinks (OSC 8) reach iTerm only when iTerm owns the mouse (⌘-click).
+	// tmux re-sends them on every redraw, and iTerm keeps each one: a busy
+	// agent's tab grew slow enough to take a whole CPU core. With tmux's
+	// mouse, clicks open links from tmux's own record of them.
+	links := []string{"set-option", "-su", "terminal-features[90]"}
 	if native {
 		mouse, screen = "off", []string{"set-option", "-s", "terminal-overrides[90]", "*:smcup@:rmcup@"}
+		links = []string{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"}
 	}
 	self, _ := os.Executable()
 	cmds := [][]string{
@@ -93,7 +99,7 @@ func ServerDefaults() {
 		// word (double-click selects it whole, a click on it opens it).
 		{"set-option", "-g", "word-separators", ` "'()<>[]{}|` + "`"},
 		{"bind-key", "-n", "MouseUp1Pane", `if-shell -F "#{mouse_any_flag}" { send-keys -M } { run-shell -b "'` + self + `' open-link --link=#{q:mouse_hyperlink} --word=#{q:mouse_word}" }`},
-		{"set-option", "-s", "terminal-features[90]", "*:hyperlinks"},
+		links,
 		screen,
 		// The terminal tab shows the agent's name as Claude Code sets it,
 		// not just "tmux", without its leading status glyph ("✳ CMM server"
@@ -121,7 +127,15 @@ func ServerDefaults() {
 	for name := range Sessions() {
 		cmds = append(cmds, []string{"set-option", "-u", "-t", name, "mouse"})
 	}
-	// A few tmux calls, commands joined with ";" (one call has a size limit).
+	if err := Batch(cmds); err != nil {
+		log.Printf("tmux defaults: %v", err)
+	}
+}
+
+// Batch runs tmux commands in a few calls, joined with ";" (one call has a
+// size limit). It returns the last error.
+func Batch(cmds [][]string) error {
+	var last error
 	for len(cmds) > 0 {
 		n := min(len(cmds), 40)
 		var args []string
@@ -132,10 +146,11 @@ func ServerDefaults() {
 			args = append(args, c...)
 		}
 		if _, err := run(args...); err != nil {
-			log.Printf("tmux defaults: %v", describe(err))
+			last = describe(err)
 		}
 		cmds = cmds[n:]
 	}
+	return last
 }
 
 type passKey struct{ name, send string }

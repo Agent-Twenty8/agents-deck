@@ -88,6 +88,11 @@ func TestServerDefaultsMouseModes(t *testing.T) {
 	if o := show("-s", "terminal-overrides"); strings.Contains(o, "smcup@") {
 		t.Errorf("tmux mode keeps the alternate screen: %s", o)
 	}
+	if f := show("-s", "terminal-features"); strings.Contains(f, "*:hyperlinks") {
+		t.Errorf("tmux mode passes hyperlinks to the terminal: %s", f)
+	}
+	NativeMouse = func() bool { return true }
+	ServerDefaults()
 	ServerDefaults() // idempotent: no duplicate entries
 	if f := show("-s", "terminal-features"); strings.Count(f, "*:hyperlinks") != 1 {
 		t.Errorf("duplicated: %s", f)

@@ -38,6 +38,7 @@ type Agent struct {
 	Branch      string     `json:"branch"`
 	Model       string     `json:"model"`
 	ModelLabel  string     `json:"modelLabel"`
+	Effort      string     `json:"effort,omitempty"` // reasoning effort of its latest turn (low, medium, high, xhigh, max)
 	Activity    *Activity  `json:"activity"`
 	LastPrompt  string     `json:"lastPrompt"`
 	Waiting     *Prompt    `json:"waiting"`
