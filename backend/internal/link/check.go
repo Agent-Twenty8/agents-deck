@@ -75,12 +75,11 @@ func Check(rw io.ReadWriter, out io.Writer, dur time.Duration) (int, error) {
 		}
 	}()
 
-	oldPing, oldRecheck := PingEvery, RecheckEvery
-	PingEvery, RecheckEvery = time.Second, 300*time.Millisecond
-	defer func() { PingEvery, RecheckEvery = oldPing, oldRecheck }()
 	ctx, cancel := context.WithTimeout(context.Background(), dur)
 	defer cancel()
-	go func() { _ = NewSession(deck, lrw, "check").Run(ctx) }()
+	sess := NewSession(deck, lrw, "check")
+	sess.PingEvery, sess.RecheckEvery = time.Second, 300*time.Millisecond
+	go func() { _ = sess.Run(ctx) }()
 
 	fails := 0
 	report := func(ok bool, what string) {

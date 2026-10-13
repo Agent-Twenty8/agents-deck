@@ -25,7 +25,6 @@ func TestFirmwareKitAgainstTheDeck(t *testing.T) {
 		t.Skipf("can't build board_sim: %v\n%s", err, out)
 	}
 	srv, ctl := testDeck(t)
-	RecheckEvery, Debounce = 50*time.Millisecond, 20*time.Millisecond
 	cmd := exec.Command(filepath.Join(host, "build", "board_sim"), "--board-id", "AA:BB:CC:00:11:22", "--type", "oled-tile",
 		"--answer-primary", "--log", "--seconds", "5")
 	in, _ := cmd.StdinPipe()
@@ -36,12 +35,12 @@ func TestFirmwareKitAgainstTheDeck(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() {
-		_ = NewSession(ServerDeck{srv}, struct {
-			io.Reader
-			io.Writer
-		}{out, in}, "board_sim").Run(ctx)
-	}()
+	sess := NewSession(ServerDeck{srv}, struct {
+		io.Reader
+		io.Writer
+	}{out, in}, "board_sim")
+	sess.RecheckEvery, sess.Debounce = 50*time.Millisecond, 20*time.Millisecond
+	go func() { _ = sess.Run(ctx) }()
 	var log []string
 	approved := false
 	sc := bufio.NewScanner(errp)

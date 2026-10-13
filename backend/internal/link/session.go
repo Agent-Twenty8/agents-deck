@@ -32,8 +32,9 @@ type Deck interface {
 	Do(d devices.Device, method, path string, body []byte) (int, []byte)
 }
 
-// Timing (variables so tests can shorten them).
-var (
+// Default timing; each Session has its own copy (tests and link check
+// shorten theirs).
+const (
 	PingEvery    = 5 * time.Second
 	RecheckEvery = 2 * time.Second // registry: approval, scope, revocation
 	Debounce     = 150 * time.Millisecond
@@ -43,6 +44,9 @@ var (
 type Session struct {
 	Deck Deck
 	Name string // the port, for logs
+
+	// Timing: set before Run.
+	PingEvery, RecheckEvery, Debounce time.Duration
 
 	rw       io.ReadWriter
 	wmu      sync.Mutex
@@ -77,7 +81,8 @@ func (s *Session) setDevice(d devices.Device) {
 
 // NewSession prepares a session; Run drives it.
 func NewSession(deck Deck, rw io.ReadWriter, name string) *Session {
-	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame}
+	return &Session{Deck: deck, rw: rw, Name: name, maxFrame: MaxFrame,
+		PingEvery: PingEvery, RecheckEvery: RecheckEvery, Debounce: Debounce}
 }
 
 func (s *Session) active() bool { return s.hello != nil && s.dev.Active() }
@@ -102,9 +107,9 @@ func (s *Session) Run(ctx context.Context) error {
 	}()
 	changes, unsub := s.Deck.Changes()
 	defer unsub()
-	ping := time.NewTicker(PingEvery)
+	ping := time.NewTicker(s.PingEvery)
 	defer ping.Stop()
-	recheck := time.NewTicker(RecheckEvery)
+	recheck := time.NewTicker(s.RecheckEvery)
 	defer recheck.Stop()
 	var debounce <-chan time.Time
 	for {
@@ -119,7 +124,7 @@ func (s *Session) Run(ctx context.Context) error {
 			}
 		case <-changes:
 			if debounce == nil {
-				debounce = time.After(Debounce)
+				debounce = time.After(s.Debounce)
 			}
 		case <-debounce:
 			debounce = nil

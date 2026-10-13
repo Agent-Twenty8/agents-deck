@@ -98,11 +98,12 @@ func (b *board) next() *linkpb.Frame {
 
 func start(t *testing.T, srv *server.Server, mode Mode) *board {
 	t.Helper()
-	RecheckEvery, Debounce = 50*time.Millisecond, 20*time.Millisecond
 	deckEnd, boardEnd := net.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); deckEnd.Close(); boardEnd.Close() })
-	go func() { _ = NewSession(ServerDeck{srv}, deckEnd, "test").Run(ctx) }()
+	s := NewSession(ServerDeck{srv}, deckEnd, "test")
+	s.RecheckEvery, s.Debounce = 50*time.Millisecond, 20*time.Millisecond
+	go func() { _ = s.Run(ctx) }()
 	return &board{t: t, conn: boardEnd, mode: mode}
 }
 
