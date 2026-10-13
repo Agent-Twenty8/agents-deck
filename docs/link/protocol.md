@@ -116,7 +116,7 @@ the request's `seq`: `Result` (the web API's status code and error text) or a ty
 | `Focus`, `Interrupt` `{agent_id}` | `POST /v1/agents/{id}/focus`, `…/interrupt` | act | `Result` |
 | `Move {agent_id, slot}` | `POST /v1/agents/{id}/move` | act | `Result` |
 | `Order {agent_ids}` | `POST /v1/order` | act | `Result` |
-| `SetHat {agent_id or folder, shape, color, auto}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
+| `SetHat {agent_id or folder, shape, color, automatic}` | `POST /v1/agents/{id}/hat`, `POST /v1/hats` | act | `Result` |
 | `Dismiss`, `Resume` `{agent_id}` | `POST /v1/agents/{id}/dismiss`, `…/resume` | admin | `Result` |
 | `Restore` | `POST /v1/restore` | admin | `RestoreResult` |
 | `ListLive` | `GET /v1/live` | admin | `LiveSessions` |

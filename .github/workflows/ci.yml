@@ -58,3 +58,25 @@ jobs:
           flutter pub get
           flutter analyze
           flutter test
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: tools (nanopb, PlatformIO)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet nanopb==0.4.9.1 platformio
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: generated C matches link.proto
+        run: firmware/deck-link/tools/generate.sh --check
+      - name: host tests
+        run: make -C firmware/deck-link/test/host test
+      - name: build every example and device
+        run: |
+          for d in firmware/deck-link/examples/*/ firmware/devices/*/; do
+            [ -f "$d/platformio.ini" ] || continue
+            echo "::group::$d"
+            pio run -d "$d"
+            echo "::endgroup::"
+          done

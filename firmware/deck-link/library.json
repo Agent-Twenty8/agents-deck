@@ -1,0 +1,16 @@
+{
+  "name": "DeckLink",
+  "version": "0.1.0",
+  "description": "Deck Link: connect a small board to the agents deck over USB serial (protobuf frames, nanopb). A C99 core plus an Arduino wrapper.",
+  "keywords": ["serial", "protobuf", "nanopb", "esp32", "agents"],
+  "frameworks": ["arduino", "espidf"],
+  "platforms": "*",
+  "headers": ["DeckLink.h", "deck_link.h", "deck_tiles.h"],
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  },
+  "export": {
+    "exclude": ["test/host/build", "examples/*/.pio"]
+  }
+}

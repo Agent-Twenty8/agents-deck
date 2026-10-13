@@ -438,7 +438,7 @@ func (s *Session) command(f *linkpb.Frame) error {
 		method, path, body = http.MethodPost, "/v1/order", map[string][]string{"ids": b.Order.AgentIds}
 	case *linkpb.Frame_SetHat:
 		h := b.SetHat
-		hb := map[string]any{"shape": h.Shape, "color": h.Color, "auto": h.Auto}
+		hb := map[string]any{"shape": h.Shape, "color": h.Color, "auto": h.Automatic}
 		if h.AgentId != "" {
 			method, path = http.MethodPost, agentPath(h.AgentId, "hat")
 		} else {

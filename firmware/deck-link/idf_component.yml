@@ -1,0 +1,4 @@
+version: "0.1.0"
+description: "Deck Link: connect a board to the agents deck over USB serial (C99 core, nanopb)."
+dependencies:
+  idf: ">=4.4"

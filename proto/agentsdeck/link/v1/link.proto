@@ -241,7 +241,7 @@ message Context {
 message Hat {
   string shape = 1;
   string color = 2;
-  bool auto = 3;
+  bool automatic = 3;  // picked from the folder, not by hand (JSON API: "auto")
 }
 
 message Subagent {
@@ -281,7 +281,7 @@ message SetHat {
   string folder = 2;
   string shape = 3;  // a shape name, or "none"
   string color = 4;  // optional
-  bool auto = 5;     // back to the automatic hat
+  bool automatic = 5;  // back to the automatic hat (JSON API: "auto")
 }
 
 message ListHats {}

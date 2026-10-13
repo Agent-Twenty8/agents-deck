@@ -2082,7 +2082,7 @@ type Hat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Shape         string                 `protobuf:"bytes,1,opt,name=shape,proto3" json:"shape,omitempty"`
 	Color         string                 `protobuf:"bytes,2,opt,name=color,proto3" json:"color,omitempty"`
-	Auto          bool                   `protobuf:"varint,3,opt,name=auto,proto3" json:"auto,omitempty"`
+	Automatic     bool                   `protobuf:"varint,3,opt,name=automatic,proto3" json:"automatic,omitempty"` // picked from the folder, not by hand (JSON API: "auto")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2131,9 +2131,9 @@ func (x *Hat) GetColor() string {
 	return ""
 }
 
-func (x *Hat) GetAuto() bool {
+func (x *Hat) GetAutomatic() bool {
 	if x != nil {
-		return x.Auto
+		return x.Automatic
 	}
 	return false
 }
@@ -2579,9 +2579,9 @@ type SetHat struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	Folder        string                 `protobuf:"bytes,2,opt,name=folder,proto3" json:"folder,omitempty"`
-	Shape         string                 `protobuf:"bytes,3,opt,name=shape,proto3" json:"shape,omitempty"` // a shape name, or "none"
-	Color         string                 `protobuf:"bytes,4,opt,name=color,proto3" json:"color,omitempty"` // optional
-	Auto          bool                   `protobuf:"varint,5,opt,name=auto,proto3" json:"auto,omitempty"`  // back to the automatic hat
+	Shape         string                 `protobuf:"bytes,3,opt,name=shape,proto3" json:"shape,omitempty"`          // a shape name, or "none"
+	Color         string                 `protobuf:"bytes,4,opt,name=color,proto3" json:"color,omitempty"`          // optional
+	Automatic     bool                   `protobuf:"varint,5,opt,name=automatic,proto3" json:"automatic,omitempty"` // back to the automatic hat (JSON API: "auto")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2644,9 +2644,9 @@ func (x *SetHat) GetColor() string {
 	return ""
 }
 
-func (x *SetHat) GetAuto() bool {
+func (x *SetHat) GetAutomatic() bool {
 	if x != nil {
-		return x.Auto
+		return x.Automatic
 	}
 	return false
 }
@@ -3372,11 +3372,11 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"cacheWrite\"5\n" +
 	"\aContext\x12\x12\n" +
 	"\x04used\x18\x01 \x01(\x03R\x04used\x12\x16\n" +
-	"\x06window\x18\x02 \x01(\x03R\x06window\"E\n" +
+	"\x06window\x18\x02 \x01(\x03R\x06window\"O\n" +
 	"\x03Hat\x12\x14\n" +
 	"\x05shape\x18\x01 \x01(\tR\x05shape\x12\x14\n" +
-	"\x05color\x18\x02 \x01(\tR\x05color\x12\x12\n" +
-	"\x04auto\x18\x03 \x01(\bR\x04auto\"X\n" +
+	"\x05color\x18\x02 \x01(\tR\x05color\x12\x1c\n" +
+	"\tautomatic\x18\x03 \x01(\bR\tautomatic\"X\n" +
 	"\bSubagent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x12\n" +
@@ -3399,13 +3399,13 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\"$\n" +
 	"\x05Order\x12\x1b\n" +
 	"\tagent_ids\x18\x01 \x03(\tR\bagentIds\"\t\n" +
-	"\aRestore\"{\n" +
+	"\aRestore\"\x85\x01\n" +
 	"\x06SetHat\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x16\n" +
 	"\x06folder\x18\x02 \x01(\tR\x06folder\x12\x14\n" +
 	"\x05shape\x18\x03 \x01(\tR\x05shape\x12\x14\n" +
-	"\x05color\x18\x04 \x01(\tR\x05color\x12\x12\n" +
-	"\x04auto\x18\x05 \x01(\bR\x04auto\"\n" +
+	"\x05color\x18\x04 \x01(\tR\x05color\x12\x1c\n" +
+	"\tautomatic\x18\x05 \x01(\bR\tautomatic\"\n" +
 	"\n" +
 	"\bListHats\"\n" +
 	"\n" +
