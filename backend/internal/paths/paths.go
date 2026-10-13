@@ -30,11 +30,13 @@ func Socket() string {
 	return filepath.Join(os.TempDir(), "agentsterm-"+hex.EncodeToString(sum[:4])+".sock")
 }
 
-func Agents() string      { return filepath.Join(Data(), "agents.json") }
-func Config() string      { return filepath.Join(Data(), "config.json") }
-func DeviceToken() string { return filepath.Join(Data(), "device-token") }
-func WebToken() string    { return filepath.Join(Data(), "web-session") }
-func TLSCert() string     { return filepath.Join(Data(), "tls-cert.pem") }
-func TLSKey() string      { return filepath.Join(Data(), "tls-key.pem") }
-func HooksFile() string   { return filepath.Join(Data(), "claude-hooks.json") }
-func Log() string         { return filepath.Join(Data(), "agentd.log") }
+func Agents() string     { return filepath.Join(Data(), "agents.json") }
+func Config() string     { return filepath.Join(Data(), "config.json") }
+func WebToken() string   { return filepath.Join(Data(), "web-session") }
+func CACert() string     { return filepath.Join(Data(), "ca.pem") }          // the deck's CA (public)
+func ServerCert() string { return filepath.Join(Data(), "server-cert.pem") } // network listener, signed by the CA
+func ServerKey() string  { return filepath.Join(Data(), "server-key.pem") }
+func Devices() string    { return filepath.Join(Data(), "devices.json") } // paired devices
+func Audit() string      { return filepath.Join(Data(), "audit.log") }    // one line per action, by device
+func HooksFile() string  { return filepath.Join(Data(), "claude-hooks.json") }
+func Log() string        { return filepath.Join(Data(), "agentd.log") }

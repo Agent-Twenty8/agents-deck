@@ -1,0 +1,85 @@
+package devices
+
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestRegistry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	r := &Registry{Path: path}
+	if err := r.AddNetwork("Desk Panel", Act, "ab", "sha256:00"); err == nil {
+		t.Error("bad name accepted")
+	}
+	if err := r.AddNetwork("desk-panel", Act, "ab", "sha256:00"); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := r.ByCertSerial("ab"); !ok || d.Name != "desk-panel" || d.Scope != Act {
+		t.Fatalf("by serial: %+v %v", d, ok)
+	}
+	// Persisted.
+	r2 := &Registry{Path: path}
+	if _, ok := r2.ByCertSerial("ab"); !ok {
+		t.Fatal("not saved")
+	}
+	if err := r2.Revoke("desk-panel"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r2.ByCertSerial("ab"); ok {
+		t.Error("revoked device still active")
+	}
+	// Re-pairing the name replaces the certificate and un-revokes.
+	_ = r2.AddNetwork("desk-panel", Act, "cd", "sha256:01")
+	if _, ok := r2.ByCertSerial("ab"); ok {
+		t.Error("old certificate still works after re-pairing")
+	}
+	if _, ok := r2.ByCertSerial("cd"); !ok {
+		t.Error("new certificate rejected")
+	}
+}
+
+func TestBoards(t *testing.T) {
+	r := &Registry{Path: filepath.Join(t.TempDir(), "devices.json")}
+	d, err := r.Board("24:6F:28:3F:A9:C1", "OLED Tile", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "oled-tile-3fa9c1" || d.Active() || d.Scope != View {
+		t.Fatalf("new board: %+v", d)
+	}
+	if err := r.Approve(d.Name); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := r.Board("24:6F:28:3F:A9:C1", "OLED Tile", "1.1.0")
+	if !again.Active() || again.Firmware != "1.1.0" || again.Name != d.Name {
+		t.Fatalf("known board: %+v", again)
+	}
+	other, _ := r.Board("xx3fa9c1", "oled tile", "1")
+	if other.Name == d.Name {
+		t.Error("two boards share a name")
+	}
+}
+
+func TestPairingCodes(t *testing.T) {
+	r := &Registry{Path: filepath.Join(t.TempDir(), "devices.json")}
+	eq := func(a, b string) bool { return a == b }
+	if err := r.NewPairingCode("phone", Act, "c0de"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := r.RedeemPairingCode("nope", eq); ok {
+		t.Error("wrong code accepted")
+	}
+	name, scope, ok := r.RedeemPairingCode("c0de", eq)
+	if !ok || name != "phone" || scope != Act {
+		t.Fatalf("redeem: %s %s %v", name, scope, ok)
+	}
+	if _, _, ok := r.RedeemPairingCode("c0de", eq); ok {
+		t.Error("code used twice")
+	}
+}
+
+func TestScopes(t *testing.T) {
+	if !Admin.Allows(Act) || !Act.Allows(View) || View.Allows(Act) || Act.Allows(Admin) || Scope("").Allows(View) {
+		t.Error("scope order")
+	}
+}

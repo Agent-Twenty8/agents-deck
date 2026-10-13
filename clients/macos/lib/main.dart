@@ -104,7 +104,7 @@ class _NotPaired extends StatelessWidget {
           const SizedBox(height: 18),
           Text(
             'install it and start the daemon:\n\n'
-            '  agentctl install\n  agentctl pair\n\n'
+            '  agentctl install\n\n'
             'the deck connects by itself once it is up.',
             style: DeckHud.mono(
               size: 20,

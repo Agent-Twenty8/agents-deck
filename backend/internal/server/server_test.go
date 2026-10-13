@@ -3,16 +3,21 @@ package server
 import (
 	"bufio"
 	"context"
-	"github.com/brushknight/agents-deck/backend/internal/hats"
+	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/devices"
+	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -33,23 +38,50 @@ func (f *fakeCtl) Interrupt(string) error { return nil }
 func (f *fakeCtl) Dismiss(string) error   { return nil }
 func (f *fakeCtl) Resume(string) error    { return nil }
 
+// testCerts: the device certificates newTestServer pairs, by name.
+var testCerts = map[string]tls.Certificate{}
+
+// newTestServer pairs three devices: "viewer" (view), "panel" (act) and
+// "boss" (admin), plus "gone", revoked.
 func newTestServer() (*Server, *fakeCtl) {
 	st := store.New("", "test", "0")
 	st.Add(&store.Entry{A: model.Agent{ID: "a1", Title: "one", Status: model.Idle}})
 	ctl := &fakeCtl{}
+	dir, _ := os.MkdirTemp("", "deck-server-test")
+	ca, err := pki.LoadOrCreateCA(filepath.Join(dir, "ca.pem"), pki.FileKeystore{Dir: filepath.Join(dir, "keys")}, "test")
+	if err != nil {
+		panic(err)
+	}
+	reg := &devices.Registry{Path: filepath.Join(dir, "devices.json")}
+	for name, scope := range map[string]devices.Scope{"viewer": devices.View, "panel": devices.Act, "boss": devices.Admin, "gone": devices.Admin} {
+		cert, certPEM, keyPEM, err := ca.NewDeviceKey(name)
+		if err != nil {
+			panic(err)
+		}
+		_ = reg.AddNetwork(name, scope, pki.SerialHex(cert), pki.Fingerprint(cert.Raw))
+		testCerts[name], _ = tls.X509KeyPair(certPEM, keyPEM)
+	}
+	_ = reg.Revoke("gone")
 	return &Server{Store: st, Ctl: ctl, Static: fstest.MapFS{"index.html": {Data: []byte("hi")}},
-		DeviceToken: func() string { return "devtoken" }, WebSession: "websession", LocalAddr: "127.0.0.1:7340"}, ctl
+		WebSession: "websession", LocalAddr: "127.0.0.1:7340", CA: ca, Devices: reg,
+		Audit: &devices.Audit{Path: filepath.Join(dir, "audit.log")}}, ctl
 }
 
+// do runs one request; a "Device" header makes it come from that paired
+// device's verified certificate (what the TLS layer hands the handler).
 func do(h http.Handler, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Host = "127.0.0.1:7340"
 	for k, v := range hdr {
-		if k == "Host" {
+		switch k {
+		case "Host":
 			r.Host = v
-			continue
+		case "Device":
+			leaf, _ := x509.ParseCertificate(testCerts[v].Certificate[0])
+			r.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{leaf}}}
+		default:
+			r.Header.Set(k, v)
 		}
-		r.Header.Set(k, v)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -60,14 +92,14 @@ func TestDeviceAuth(t *testing.T) {
 	s, ctl := newTestServer()
 	h := s.DeviceHandler()
 	if c := do(h, "GET", "/v1/state", "", nil).Code; c != 401 {
-		t.Errorf("no token: %d", c)
+		t.Errorf("no certificate: %d", c)
 	}
-	if c := do(h, "GET", "/v1/state", "", map[string]string{"Authorization": "Bearer nope"}).Code; c != 401 {
-		t.Errorf("bad token: %d", c)
+	if c := do(h, "GET", "/v1/state", "", map[string]string{"Device": "gone"}).Code; c != 401 {
+		t.Errorf("revoked device: %d", c)
 	}
-	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	auth := map[string]string{"Device": "panel"}
 	if c := do(h, "GET", "/v1/state", "", auth).Code; c != 200 {
-		t.Errorf("good token: %d", c)
+		t.Errorf("paired device: %d", c)
 	}
 	if c := do(h, "GET", "/index.html", "", auth).Code; c != 404 {
 		t.Errorf("device listener must not serve the web UI: %d", c)
@@ -80,6 +112,25 @@ func TestDeviceAuth(t *testing.T) {
 	}
 	if c := do(h, "POST", "/v1/agents/zz/answer", `{"promptId":"p1","key":"2"}`, auth).Code; c != 404 {
 		t.Errorf("unknown agent: %d", c)
+	}
+	// Scopes: view reads only; act can't dismiss; admin can.
+	view := map[string]string{"Device": "viewer"}
+	if c := do(h, "GET", "/v1/state", "", view).Code; c != 200 {
+		t.Errorf("view reads: %d", c)
+	}
+	if c := do(h, "POST", "/v1/agents/a1/focus", "", view).Code; c != 403 {
+		t.Errorf("view acts: %d", c)
+	}
+	if c := do(h, "POST", "/v1/agents/a1/dismiss", "", auth).Code; c != 403 {
+		t.Errorf("act dismisses: %d", c)
+	}
+	if c := do(h, "POST", "/v1/agents/a1/dismiss", "", map[string]string{"Device": "boss"}).Code; c != 204 {
+		t.Errorf("admin dismisses: %d", c)
+	}
+	// Every action is in the audit log under the device's name.
+	b, _ := os.ReadFile(s.Audit.Path)
+	if !strings.Contains(string(b), `"device":"boss","action":"POST /v1/agents/a1/dismiss","status":204`) {
+		t.Errorf("audit log: %s", b)
 	}
 }
 
@@ -126,13 +177,11 @@ func TestLoginCodeOneTime(t *testing.T) {
 
 func TestEventsStream(t *testing.T) {
 	s, _ := newTestServer()
-	srv := httptest.NewServer(s.DeviceHandler())
-	defer srv.Close()
+	srv, client := tlsServer(t, s, "panel")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/v1/events", nil)
-	req.Header.Set("Authorization", "Bearer devtoken")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +216,7 @@ func TestOrder(t *testing.T) {
 	s.Store.Add(&store.Entry{A: model.Agent{ID: "a2", Title: "two"}})
 	s.Store.Add(&store.Entry{A: model.Agent{ID: "a3", Title: "three"}})
 	h := s.DeviceHandler()
-	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	auth := map[string]string{"Device": "panel"}
 	if c := do(h, "POST", "/v1/order", `{"ids":["a3","zz","a1"]}`, auth).Code; c != 204 {
 		t.Fatalf("order: %d", c)
 	}
@@ -187,7 +236,7 @@ func TestMoveToFreeSlot(t *testing.T) {
 	s, _ := newTestServer()
 	s.Store.Add(&store.Entry{A: model.Agent{ID: "a2", Title: "two"}})
 	h := s.DeviceHandler()
-	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	auth := map[string]string{"Device": "panel"}
 	slots := func() map[string]int {
 		m := map[string]int{}
 		for _, a := range s.Store.Snapshot().Agents {
@@ -228,7 +277,7 @@ func TestHatEndpoints(t *testing.T) {
 	s.Store.Hat = s.Hats.For
 	s.Store.Update("a1", func(e *store.Entry) bool { e.A.Cwd = "/Users/sam/dev/app"; return true })
 	h := s.DeviceHandler()
-	auth := map[string]string{"Authorization": "Bearer devtoken"}
+	auth := map[string]string{"Device": "panel"}
 	hatOf := func() *model.Hat {
 		for _, a := range s.Store.Snapshot().Agents {
 			if a.ID == "a1" {

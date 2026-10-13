@@ -1,25 +1,26 @@
 // Package server exposes protocol v1 on three listeners:
-//   - unix socket: hooks + CLI (trusted by filesystem permissions)
+//   - unix socket: hooks, CLI and the menu bar app (trusted by filesystem permissions)
 //   - 127.0.0.1:7340: web UI + API, cookie session from a one-time login code
-//   - LAN :7341 TLS: the panel, bearer device token, pinned self-signed cert
+//   - network :7341: TLS 1.3 with a client certificate per paired device
+//     (devices.go), signed by the deck's own CA
 package server
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
+	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -70,18 +71,23 @@ var (
 )
 
 type Server struct {
-	Store       *store.Store
-	Ctl         Controller
-	Static      fs.FS
-	DeviceToken func() string
-	WebSession  string
-	LocalAddr   string // e.g. 127.0.0.1:7340
-	// LANHosts lists the host:port values the opt-in LAN web listener answers
-	// to (this Mac's own addresses and .local name); nil when it is off.
-	LANHosts func() []string
+	Store      *store.Store
+	Ctl        Controller
+	Static     fs.FS
+	WebSession string
+	LocalAddr  string // e.g. 127.0.0.1:7340
 	// Hats holds the per-folder hat overrides (nil: hats can't be changed).
-	Hats   *hats.Book
-	logins loginCodes
+	Hats *hats.Book
+	// Devices and CA: paired devices and the authority that signs their
+	// certificates (nil: no network listener). Audit records their actions.
+	Devices *devices.Registry
+	CA      *pki.CA
+	Audit   *devices.Audit
+	// DeviceURL is how devices reach the network listener (https://host:port).
+	DeviceURL string
+	// ServerFingerprint is the network listener's certificate SHA-256.
+	ServerFingerprint string
+	logins            loginCodes
 }
 
 const sessionCookie = "agentsterm_session"
@@ -303,37 +309,6 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ---- device listener (LAN, TLS, bearer) ---------------------------------
-
-func (s *Server) DeviceHandler() http.Handler {
-	api := s.api()
-	return secureHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") || !equal(strings.TrimPrefix(auth, "Bearer "), s.DeviceToken()) {
-			time.Sleep(300 * time.Millisecond) // slow down guessing
-			writeErr(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
-		if !strings.HasPrefix(r.URL.Path, "/v1/") {
-			writeErr(w, http.StatusNotFound, "not found")
-			return
-		}
-		api.ServeHTTP(w, r)
-	}))
-}
-
-func ServeDevice(addr string, cert tls.Certificate, h http.Handler) error {
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           h,
-		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		ErrorLog:          log.New(io.Discard, "", 0), // panel reconnects produce TLS noise
-	}
-	return srv.ListenAndServeTLS("", "")
-}
-
 // ---- local listener (loopback, web UI) ----------------------------------
 
 func (s *Server) LocalHandler() http.Handler {
@@ -349,23 +324,6 @@ func (s *Server) LocalHandler() http.Handler {
 		}
 		return false
 	})
-}
-
-// LANHandler serves the same web UI to other devices on the local network
-// (opt-in: agentctl set web lan). Same login and session as on the Mac; the
-// host must be one of this Mac's own names, and writes must be same-origin.
-func (s *Server) LANHandler() http.Handler {
-	return s.webHandler(func(r *http.Request) bool {
-		if s.LANHosts == nil {
-			return false
-		}
-		for _, h := range s.LANHosts() {
-			if strings.EqualFold(r.Host, h) {
-				return true
-			}
-		}
-		return false
-	}, nil)
 }
 
 // webHandler is the web UI + cookie-authenticated API behind a host check
@@ -408,7 +366,7 @@ func (s *Server) webHandler(hostOK func(*http.Request) bool, pre func(http.Respo
 			writeErr(w, http.StatusForbidden, "bad origin")
 			return
 		}
-		api.ServeHTTP(w, r)
+		s.audited("web", api).ServeHTTP(w, r)
 	}))
 }
 
@@ -422,7 +380,8 @@ func ServeLocal(addr string, h http.Handler) error {
 func (s *Server) UnixHandler(lc LocalController) http.Handler {
 	api := s.api()
 	mux := http.NewServeMux()
-	mux.Handle("/v1/", api)
+	mux.Handle("/v1/", s.audited("local", api))
+	s.localDevices(mux)
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err := lc.Hook(r.URL.Query().Get("agent"), body); err != nil {
@@ -479,11 +438,7 @@ func (s *Server) UnixHandler(lc LocalController) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 	})
 	mux.HandleFunc("POST /local/login-code", func(w http.ResponseWriter, r *http.Request) {
-		code := s.logins.issue()
-		if r.URL.Query().Get("for") == "phone" { // time to scan or paste it on another device
-			code = s.logins.issueFor(5 * time.Minute)
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"code": code})
+		writeJSON(w, http.StatusOK, map[string]string{"code": s.logins.issue()})
 	})
 	return mux
 }

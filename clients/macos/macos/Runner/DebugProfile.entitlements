@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!-- Not sandboxed: it reads agentctl's own files (~/.local/share/agents-terminal)
-	     and talks to the daemon on 127.0.0.1. Distributed outside the App Store. -->
+	     and talks to the daemon over its unix socket (~/.local/share/agents-terminal/agentd.sock). Distributed outside the App Store. -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 	<key>com.apple.security.cs.allow-jit</key>

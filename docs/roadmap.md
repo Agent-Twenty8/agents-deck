@@ -20,7 +20,7 @@ Working: the deck UI moved into a shared Flutter package (`clients/flutter/agent
 A macOS menu bar icon. Clicking it opens a small overlay in the top-right corner with the same 4×4 deck as the desk panel. Click an agent for its card: answer, focus terminal, interrupt.
 
 - Reuse the panel UI as-is: the agents app from the Flutter panel, built for macOS desktop. That gives the same tiles, critters, cards and drag-to-arrange, with no second UI to maintain.
-- It talks to the daemon locally. Pairing is automatic: it reads the token and certificate fingerprint from `~/.local/share/agents-terminal`.
+- It talks to the daemon over its unix socket: no pairing, nothing on the network.
 - The icon shows state at a glance: plain when idle, an accent dot when an agent needs you.
 - It hides when it loses focus (like other menu bar popovers), and has a global shortcut to open it.
 

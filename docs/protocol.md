@@ -4,11 +4,12 @@ One Go daemon (`agentctl serve`) owns all agent state. Clients:
 
 | client | transport | auth |
 |---|---|---|
-| panel (Flutter, 720×720) | HTTPS on the LAN, `:7341`, self-signed cert **pinned by SHA-256 fingerprint** | `Authorization: Bearer <device token>` |
+| desk panel (Flutter, 720×720), later a phone app | HTTPS on the network, `:7341`, **TLS 1.3 only** | a **client certificate per device**, signed by the deck's CA; scope view, act or admin |
 | web UI (served by the daemon) | HTTP on `127.0.0.1:7340` only | HttpOnly SameSite=Strict cookie set by a one-time login URL from `agentctl web` |
-| Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions |
+| menu bar app, Claude Code hooks, `agentctl` CLI | unix socket `~/.local/share/agents-terminal/agentd.sock` (0600) | filesystem permissions: your macOS user |
+| ESP32 boards (Deck Link) | USB serial, see [link/protocol.md](link/protocol.md) | approved once per board; scope view, act or admin |
 
-Both HTTP listeners serve the same `/v1` API. Nothing listens on the LAN without TLS + token.
+Every listener serves the same `/v1` API. Nothing listens on the network without TLS and a device certificate.
 The loopback listener rejects any `Host` other than `127.0.0.1:7340`/`localhost:7340` and any
 mutating request whose `Origin` is not that host.
 
@@ -124,16 +125,49 @@ Status meanings (what the tiles show):
 | `error` | API error or crashed | accent outline, X eyes, "!" |
 | `exited` | process gone; stays 10 min (resumable), then moves to the CLI history (`agentctl resume`) | dim, hollow |
 
-## Pairing the panel
+## Devices and security
 
-`agentctl pair` prints the values the panel needs:
+**The CA.** On first start the daemon creates its own certificate authority: `ca.pem` in the data
+folder (public), its EC P-256 key in the macOS Keychain (`dev.agents-deck`, item `ca-key`; a 0600 file
+under `keys/` on Linux and Windows). It signs the network listener's certificate (`server-cert.pem`,
+reissued when the Mac's names or addresses change) and every device's certificate.
 
-```json
-{ "url": "https://my-mac.local:7341", "token": "…64 hex…", "fingerprint": "sha256:AB:CD:…" }
-```
+**The listener** (`:7341`) accepts TLS 1.3 only. A connection may come without a client certificate,
+but then the only thing it can do is pair. With one, the certificate must chain to the deck's CA and
+belong to an active device in `devices.json`; a revoked device fails the handshake.
 
-The panel stores them in its own config and verifies the server certificate by fingerprint
-only (no CA). `agentctl pair --rotate` issues a new token and invalidates the old one.
+**Scopes.** Each device has one:
+
+| scope | may |
+|---|---|
+| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats` |
+| `act` | also answer, focus, interrupt, move, order, hats |
+| `admin` | also dismiss, resume, restore, `GET /v1/live`, add a live session |
+
+A request beyond the device's scope gets `403` with the command that would raise it.
+
+**Pairing.** Two ways:
+
+- `agentctl pair desk-panel --bundle panel.json` makes the device's key and certificate on the Mac and
+  writes a bundle to copy to the device once (over SSH, or pasted into the panel's setup page):
+
+  ```json
+  { "name": "desk-panel", "url": "https://my-mac.local:7341", "ca": "-----BEGIN CERTIFICATE-----…",
+    "fingerprint": "sha256:AB:CD:…", "cert": "-----BEGIN CERTIFICATE-----…", "key": "-----BEGIN PRIVATE KEY-----…" }
+  ```
+
+  Clients verify the server against `ca`; `fingerprint` (the listener's own certificate) is accepted
+  when the host name isn't one the certificate covers.
+- `agentctl pair phone` prints a one-time code (2 minutes, single use). The device makes its own
+  EC P-256 or P-384 key and sends `POST /v1/pair {"code", "csr"}` (the CSR in PEM) without a client
+  certificate; the answer is `{"name", "cert", "ca"}`. Its private key never leaves it.
+
+Pairing a name again replaces its certificate. `agentctl devices` lists everything paired;
+`agentctl devices revoke|approve|remove <name>` and `agentctl devices scope <name> <scope>` manage them.
+
+**Audit.** Every request that changes something is appended to `audit.log` as one JSON line:
+`{"time", "device", "action": "POST /v1/agents/k3f9a2/answer", "status": 204}`; the web dashboard is
+`web`, the unix socket `local`.
 
 ## Demo mode
 

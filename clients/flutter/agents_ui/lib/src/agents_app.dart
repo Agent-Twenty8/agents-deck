@@ -870,8 +870,8 @@ class AgentsPairingCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'the agents board needs the daemon\'s address, token and '
-              'certificate fingerprint.',
+              'the agents board needs a pairing bundle from your mac: '
+              'its address, its certificate and a key for this panel.',
               style: DeckHud.mono(
                 size: 16,
                 color: DeckHud.dim,
@@ -880,16 +880,14 @@ class AgentsPairingCard extends StatelessWidget {
             const SizedBox(height: 34),
             step('1', [
               const TextSpan(text: 'on the mac, run '),
-              code('agentctl pair'),
+              code('agentctl pair desk-panel --bundle -'),
             ]),
             step('2', [
               const TextSpan(text: 'open the panel setup page '),
               code(agentsSetupUrl()),
             ]),
             step('3', [
-              const TextSpan(
-                text: 'paste the url, token and fingerprint into ',
-              ),
+              const TextSpan(text: 'paste the whole output into '),
               const TextSpan(
                 text: 'agents',
                 style: TextStyle(color: DeckHud.accent),
@@ -899,7 +897,7 @@ class AgentsPairingCard extends StatelessWidget {
             const Spacer(),
             Text(
               problem ??
-                  'the board connects by itself once the values are saved.',
+                  'the board connects by itself once the bundle is saved.',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: DeckHud.mono(

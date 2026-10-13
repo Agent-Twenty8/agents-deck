@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,7 +21,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -28,9 +28,11 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/daemon"
 	"github.com/brushknight/agents-deck/backend/internal/demo"
+	"github.com/brushknight/agents-deck/backend/internal/devices"
 	"github.com/brushknight/agents-deck/backend/internal/hats"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/paths"
+	"github.com/brushknight/agents-deck/backend/internal/pki"
 	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/sim"
 	"github.com/brushknight/agents-deck/backend/internal/store"
@@ -63,7 +65,11 @@ const usage = `agentctl — agents-terminal
                                  simulated Claudes working in real projects under DIR (for demos)
   agentctl sim stop              remove all simulated agents
   agentctl web                   open the dashboard in the browser
-  agentctl pair [--rotate]       print the values the panel needs
+  agentctl pair <name> [--scope view|act|admin] [--bundle FILE]
+                                 pair a device: a one-time code it trades for its own certificate,
+                                 or (--bundle) a key and certificate to copy to it over SSH
+  agentctl devices [revoke|approve|remove <name> | scope <name> <scope>]
+                                 paired devices and serial boards; cut one off, approve a board
   agentctl serve [--demo]        run the daemon (normally via launchd)
   agentctl install               install + start the launchd agent
   agentctl set term iterm|tmux|window
@@ -131,6 +137,8 @@ func main() {
 		err = openWeb(args)
 	case "pair":
 		err = pair(args)
+	case "devices":
+		err = devicesCmd(args)
 	case "install":
 		err = install()
 	case "version", "--version":
@@ -735,31 +743,6 @@ func remove(args []string) error {
 
 func openWeb(args []string) error {
 	cfg := loadConfig()
-	if len(args) > 0 && args[0] == "--phone" {
-		if cfg.Web != "lan" {
-			return errors.New("the dashboard is on this Mac only: run `agentctl set web lan` first")
-		}
-		var res struct{ Code string }
-		if err := call("POST", "/local/login-code?for=phone", nil, &res); err != nil {
-			return err
-		}
-		ips := lanIPs()
-		hosts := append([]string{}, ips...)
-		hosts = append(hosts, localHostName())
-		fmt.Println("open on your phone (one-time link, valid 5 minutes):")
-		for _, h := range hosts {
-			fmt.Printf("  http://%s:%s/login?code=%s\n", h, lanWebPort, res.Code)
-		}
-		if len(hosts) > 0 {
-			link := fmt.Sprintf("http://%s:%s/login?code=%s", hosts[0], lanWebPort, res.Code)
-			c := exec.Command("/usr/bin/pbcopy")
-			c.Stdin = strings.NewReader(link)
-			if c.Run() == nil {
-				fmt.Println("the first link is on the clipboard (paste it on an iPhone via Universal Clipboard)")
-			}
-		}
-		return nil
-	}
 	var res struct{ Code string }
 	if err := call("POST", "/local/login-code", nil, &res); err != nil {
 		return err
@@ -768,37 +751,107 @@ func openWeb(args []string) error {
 }
 
 func pair(args []string) error {
-	if err := paths.Ensure(); err != nil {
+	fs := flag.NewFlagSet("pair", flag.ExitOnError)
+	scope := fs.String("scope", "act", "what the device may do: view, act or admin")
+	bundle := fs.String("bundle", "", "write a key and certificate for the device to `FILE` (- for stdout) instead of a pairing code")
+	var name string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		name, args = args[0], args[1:]
+	}
+	_ = fs.Parse(args)
+	if name == "" && fs.NArg() > 0 {
+		name = fs.Arg(0)
+	}
+	if name == "" {
+		return errors.New("usage: agentctl pair <name> [--scope view|act|admin] [--bundle FILE]   e.g. agentctl pair desk-panel --bundle panel.json")
+	}
+	body := map[string]string{"name": name, "scope": *scope}
+	if *bundle != "" {
+		var b server.Bundle
+		if err := call("POST", "/local/devices/provision", body, &b); err != nil {
+			return err
+		}
+		out, _ := json.MarshalIndent(b, "", "  ")
+		if *bundle == "-" {
+			fmt.Println(string(out))
+			return nil
+		}
+		if err := os.WriteFile(*bundle, append(out, '\n'), 0o600); err != nil {
+			return err
+		}
+		fmt.Printf("paired %s (%s). Copy %s to the device, then delete it here: it holds the device's private key.\n", name, *scope, *bundle)
+		return nil
+	}
+	var res struct{ Code, URL, CA, Expires string }
+	if err := call("POST", "/local/devices/code", body, &res); err != nil {
 		return err
 	}
-	rotate := len(args) > 0 && args[0] == "--rotate"
-	var tok string
-	var err error
-	if rotate {
-		tok, err = server.RotateSecret(paths.DeviceToken())
-	} else {
-		tok, err = server.LoadOrCreateSecret(paths.DeviceToken())
-	}
-	if err != nil {
-		return err
-	}
-	host := localHostName()
-	cert, err := server.LoadOrCreateCert(paths.TLSCert(), paths.TLSKey(), host)
-	if err != nil {
-		return err
-	}
-	cfg := loadConfig()
-	_, port, _ := net.SplitHostPort(cfg.DeviceAddr)
-	out, _ := json.MarshalIndent(map[string]string{
-		"url":         "https://" + host + ":" + port,
-		"token":       tok,
-		"fingerprint": server.Fingerprint(cert),
-	}, "", "  ")
-	fmt.Println(string(out))
-	if rotate {
-		fmt.Fprintln(os.Stderr, "token rotated — the daemon picks it up within a few seconds; re-pair the panel")
-	}
+	out, _ := json.MarshalIndent(map[string]string{"url": res.URL, "ca": res.CA, "code": res.Code}, "", "  ")
+	fmt.Printf("pairing code for %s (%s), valid 2 minutes, single use:\n%s\n", name, *scope, out)
+	fmt.Println("the device makes its own key and sends a certificate request with this code to POST /v1/pair")
 	return nil
+}
+
+func devicesCmd(args []string) error {
+	if len(args) > 0 {
+		action := args[0]
+		switch {
+		case action == "scope" && len(args) == 3:
+			return call("POST", "/local/devices/"+args[1]+"/scope", map[string]string{"scope": args[2]}, nil)
+		case (action == "revoke" || action == "approve" || action == "remove") && len(args) == 2:
+			if err := call("POST", "/local/devices/"+args[1]+"/"+action, nil, nil); err != nil {
+				return err
+			}
+			fmt.Printf("%s: %sd\n", args[1], strings.TrimSuffix(action, "e"))
+			return nil
+		}
+		return errors.New("usage: agentctl devices [revoke|approve|remove <name> | scope <name> view|act|admin]")
+	}
+	var res struct {
+		Devices []devices.Device
+		CA, URL string
+	}
+	if err := call("GET", "/local/devices", nil, &res); err != nil {
+		return err
+	}
+	fmt.Printf("listener %s · CA %s\n\n", res.URL, res.CA)
+	if len(res.Devices) == 0 {
+		fmt.Println("no devices yet: agentctl pair <name>")
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tKIND\tSCOPE\tSTATE\tLAST SEEN\tDETAIL")
+	for _, d := range res.Devices {
+		state := "active"
+		switch {
+		case d.Revoked:
+			state = "revoked"
+		case d.Kind == devices.Serial && !d.Approved:
+			state = "waiting for approval"
+		}
+		seen := "never"
+		if !d.LastSeen.IsZero() {
+			seen = humanAgo(time.Since(d.LastSeen)) + " ago"
+		}
+		detail := ""
+		if d.Kind == devices.Serial {
+			detail = strings.TrimSpace(d.Type + " " + d.Firmware + " · " + d.BoardID)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.Name, d.Kind, d.Scope, state, seen, detail)
+	}
+	return tw.Flush()
+}
+
+func humanAgo(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
 func localHostName() string {
@@ -816,19 +869,7 @@ func localHostName() string {
 type fileConfig struct {
 	daemon.Config
 	LocalAddr  string `json:"localAddr"`
-	DeviceAddr string `json:"deviceAddr"` // "" disables the LAN listener
-	Web        string `json:"web"`        // "lan" also serves the web UI on the LAN (lanWebPort)
-}
-
-const lanWebPort = "7342"
-
-// lanHosts are the host:port names the LAN web listener answers to.
-func lanHosts() []string {
-	hosts := []string{localHostName() + ":" + lanWebPort}
-	for _, ip := range lanIPs() {
-		hosts = append(hosts, ip+":"+lanWebPort)
-	}
-	return hosts
+	DeviceAddr string `json:"deviceAddr"` // "" disables the network listener (paired devices)
 }
 
 // lanIPs are this Mac's non-loopback IPv4 addresses.
@@ -900,18 +941,30 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	tokenCache := newSecretCache(paths.DeviceToken())
 	book := &hats.Book{Path: paths.Config()}
 	st.Hat = book.For
-	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(), DeviceToken: tokenCache.get,
-		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book}
+	srv := &server.Server{Store: st, Ctl: ctl, Static: web.Static(),
+		WebSession: webSession, LocalAddr: cfg.LocalAddr, Hats: book,
+		Devices: &devices.Registry{Path: paths.Devices()}, Audit: &devices.Audit{Path: paths.Audit()}}
 	errc := make(chan error, 4)
-	if cfg.Web == "lan" {
-		srv.LANHosts = lanHosts
-		log.Printf("web also on the local network, port %s", lanWebPort)
-		go func() {
-			errc <- fmt.Errorf("web lan :%s: %w", lanWebPort, server.ServeLocal(":"+lanWebPort, srv.LANHandler()))
-		}()
+	var deviceTLS *tls.Config
+	if cfg.DeviceAddr != "" {
+		ca, err := pki.LoadOrCreateCA(paths.CACert(), pki.DefaultKeystore(paths.Data()), strings.TrimSuffix(host, ".local"))
+		if err != nil {
+			return fmt.Errorf("certificate authority: %w", err)
+		}
+		hosts := append([]string{host, "localhost", "127.0.0.1"}, lanIPs()...)
+		cert, err := ca.ServerCert(paths.ServerCert(), paths.ServerKey(), hosts)
+		if err != nil {
+			return fmt.Errorf("server certificate: %w", err)
+		}
+		_, port, _ := net.SplitHostPort(cfg.DeviceAddr)
+		srv.CA, srv.DeviceURL = ca, "https://"+host+":"+port
+		srv.ServerFingerprint = pki.Fingerprint(cert.Certificate[0])
+		deviceTLS = srv.TLSConfig(cert)
+		for _, old := range []string{"device-token", "tls-cert.pem", "tls-key.pem"} { // before per-device certificates
+			_ = os.Remove(filepath.Join(paths.Data(), old))
+		}
 	}
 
 	if lc != nil {
@@ -924,17 +977,10 @@ func serve(args []string) error {
 	go func() {
 		errc <- fmt.Errorf("web %s: %w", cfg.LocalAddr, server.ServeLocal(cfg.LocalAddr, srv.LocalHandler()))
 	}()
-	if cfg.DeviceAddr != "" {
-		if _, err := server.LoadOrCreateSecret(paths.DeviceToken()); err != nil {
-			return err
-		}
-		cert, err := server.LoadOrCreateCert(paths.TLSCert(), paths.TLSKey(), host)
-		if err != nil {
-			return err
-		}
-		log.Printf("panel listener %s (fingerprint %s)", cfg.DeviceAddr, server.Fingerprint(cert))
+	if deviceTLS != nil {
+		log.Printf("device listener %s: TLS 1.3, client certificates from CA %s", cfg.DeviceAddr, srv.CA.Fingerprint())
 		go func() {
-			errc <- fmt.Errorf("panel %s: %w", cfg.DeviceAddr, server.ServeDevice(cfg.DeviceAddr, cert, srv.DeviceHandler()))
+			errc <- fmt.Errorf("devices %s: %w", cfg.DeviceAddr, server.ServeDevice(cfg.DeviceAddr, deviceTLS, srv.DeviceHandler()))
 		}()
 	}
 	log.Printf("agentctl %s serving web on http://%s", version, cfg.LocalAddr)
@@ -963,29 +1009,6 @@ func (demoLocal) ResumeSession(string, string, string) (string, error) {
 }
 func (demoLocal) HistoryJSON() any { return []any{} }
 
-// secretCache re-reads the device token file at most every few seconds so
-// `agentctl pair --rotate` takes effect without a restart.
-type secretCache struct {
-	mu   sync.Mutex
-	path string
-	val  string
-	at   time.Time
-}
-
-func newSecretCache(path string) *secretCache { return &secretCache{path: path} }
-
-func (c *secretCache) get() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if time.Since(c.at) > 3*time.Second {
-		if b, err := os.ReadFile(c.path); err == nil {
-			c.val = strings.TrimSpace(string(b))
-		}
-		c.at = time.Now()
-	}
-	return c.val
-}
-
 // ---- settings ----------------------------------------------------------------------
 
 func setCmd(args []string) error {
@@ -999,12 +1022,6 @@ func setCmd(args []string) error {
 		return err
 	}
 	fmt.Printf("%s = %s\n", args[0], args[1])
-	if args[0] == "web" { // the daemon reads it at start
-		uid := fmt.Sprint(os.Getuid())
-		if exec.Command("launchctl", "kickstart", "-k", "gui/"+uid+"/"+plistLabel).Run() == nil {
-			fmt.Println("daemon restarted")
-		}
-	}
 	if args[0] == "mouse" { // applies to running agents now; reattach for links and scrollback
 		tmux.NativeMouse = func() bool { return daemon.CurrentMouse() == daemon.MouseNative }
 		tmux.ServerDefaults()
@@ -1014,8 +1031,8 @@ func setCmd(args []string) error {
 }
 
 func getCmd(args []string) error {
-	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse(), "restore": daemon.CurrentRestore()}
-	keys := []string{"term", "mouse", "restore"}
+	vals := map[string]string{"term": daemon.CurrentTerm(), "mouse": daemon.CurrentMouse(), "restore": daemon.CurrentRestore(), "header": daemon.CurrentHeader()}
+	keys := []string{"term", "mouse", "restore", "header"}
 	if len(args) == 1 {
 		v, ok := vals[args[0]]
 		if !ok {

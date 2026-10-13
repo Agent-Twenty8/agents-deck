@@ -24,8 +24,8 @@ enum AgentsLink {
 }
 
 /// What the UI renders from: the link, the latest fleet state, and a short
-/// reason when something is wrong ("certificate mismatch", "token
-/// rejected", "connection refused").
+/// reason when something is wrong ("certificate mismatch", "not paired",
+/// "connection refused").
 @immutable
 class AgentsSnapshot {
   const AgentsSnapshot({required this.link, this.state, this.problem});
@@ -301,23 +301,35 @@ class HttpAgentsClient implements AgentsSource {
     if (_client != null && key == _configKey) return _client!;
     _client?.close(force: true);
     _configKey = key;
-    // No trusted roots: every chain "fails" verification and lands in the
-    // callback, which accepts exactly the pinned certificate.
-    final client = HttpClient(context: SecurityContext(withTrustedRoots: false))
-      ..connectionTimeout = requestTimeout
-      ..idleTimeout = const Duration(seconds: 30)
-      ..badCertificateCallback = (cert, host, port) {
-        final ok = fingerprintMatches(cert.der, cfg.fingerprint);
-        if (!ok) _pinMismatch = true;
-        return ok;
-      };
-    return _client = client;
-  }
-
-  void _checkPin(X509Certificate? cert, AgentsConfig cfg) {
-    if (cert != null && !fingerprintMatches(cert.der, cfg.fingerprint)) {
-      throw const _Problem('certificate mismatch');
+    final HttpClient client;
+    if (cfg.socketPath case final path?) {
+      // The daemon on this Mac: its unix socket, no TLS and no network.
+      client = HttpClient()
+        ..connectionFactory = (uri, proxyHost, proxyPort) =>
+            Socket.startConnect(
+              InternetAddress(path, type: InternetAddressType.unix),
+              0,
+            );
+    } else {
+      // TLS with this device's certificate; the server must chain to the
+      // deck's CA. A host name the certificate doesn't cover lands in the
+      // callback, which accepts exactly the paired listener certificate.
+      final ctx = SecurityContext(withTrustedRoots: false)
+        ..setTrustedCertificatesBytes(utf8.encode(cfg.ca))
+        ..useCertificateChainBytes(utf8.encode(cfg.cert))
+        ..usePrivateKeyBytes(utf8.encode(cfg.key));
+      client = HttpClient(context: ctx)
+        ..badCertificateCallback = (cert, host, port) {
+          final fp = cfg.fingerprint;
+          final ok = fp != null && fingerprintMatches(cert.der, fp);
+          if (!ok) _pinMismatch = true;
+          return ok;
+        };
     }
+    client
+      ..connectionTimeout = requestTimeout
+      ..idleTimeout = const Duration(seconds: 30);
+    return _client = client;
   }
 
   Future<void> _run() async {
@@ -362,11 +374,9 @@ class HttpAgentsClient implements AgentsSource {
         .getUrl(cfg.endpoint(const ['v1', 'events']))
         .timeout(requestTimeout);
     req.headers
-      ..set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}')
       ..set(HttpHeaders.acceptHeader, 'text/event-stream')
       ..set(HttpHeaders.cacheControlHeader, 'no-cache');
     final res = await req.close().timeout(requestTimeout);
-    _checkPin(res.certificate, cfg);
     if (res.statusCode != 200) {
       final body = await _readBody(res);
       throw _Problem(_httpProblem(res.statusCode, body));
@@ -437,7 +447,8 @@ class HttpAgentsClient implements AgentsSource {
   }
 
   static String _httpProblem(int code, String body) {
-    if (code == 401 || code == 403) return 'token rejected';
+    if (code == 401) return 'not paired: run agentctl pair on the mac';
+    if (code == 403) return _errorField(body) ?? 'not allowed for this device';
     return _errorField(body) ?? 'http $code';
   }
 
@@ -446,7 +457,7 @@ class HttpAgentsClient implements AgentsSource {
     if (_pinMismatch) return 'certificate mismatch';
     if (e is TimeoutException) return 'timed out';
     if (e is HandshakeException || e is TlsException) {
-      return 'tls handshake failed';
+      return 'tls handshake failed: revoked, or paired with another mac?';
     }
     if (e is SocketException) {
       final m = e.osError?.message ?? e.message;
@@ -474,7 +485,6 @@ class HttpAgentsClient implements AgentsSource {
       final req = await _clientFor(
         cfg,
       ).postUrl(cfg.endpoint(path)).timeout(requestTimeout);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}');
       if (body != null) {
         final bytes = utf8.encode(jsonEncode(body));
         req.headers.contentType = ContentType.json;
@@ -484,7 +494,6 @@ class HttpAgentsClient implements AgentsSource {
         req.contentLength = 0;
       }
       final res = await req.close().timeout(requestTimeout);
-      _checkPin(res.certificate, cfg);
       final text = await _readBody(res);
       final code = res.statusCode;
       if (code >= 200 && code < 300) return AgentsResult.ok;
@@ -534,9 +543,7 @@ class HttpAgentsClient implements AgentsSource {
       final req = await _clientFor(
         cfg,
       ).getUrl(cfg.endpoint(const ['v1', 'live'])).timeout(requestTimeout);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}');
       final res = await req.close().timeout(requestTimeout);
-      _checkPin(res.certificate, cfg);
       final text = await _readBody(res);
       if (res.statusCode != 200) return const [];
       final j = jsonDecode(text);
@@ -580,9 +587,7 @@ class HttpAgentsClient implements AgentsSource {
       final req = await _clientFor(
         cfg,
       ).getUrl(cfg.endpoint(const ['v1', 'state'])).timeout(requestTimeout);
-      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${cfg.token}');
       final res = await req.close().timeout(requestTimeout);
-      _checkPin(res.certificate, cfg);
       final text = await _readBody(res);
       if (res.statusCode != 200) return;
       final state = AgentsState.fromJson(jsonDecode(text));

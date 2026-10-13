@@ -135,50 +135,56 @@ void main() {
 
   group('AgentsConfig', () {
     final fp = 'sha256:${List.filled(32, 'AB').join(':')}';
+    const pemCert =
+        '-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----';
+    const pemKey =
+        '-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----';
+    Map<String, dynamic> bundle([Map<String, dynamic> over = const {}]) => {
+      'name': 'desk-panel',
+      'url': 'https://192.0.2.10:7341/',
+      'ca': pemCert,
+      'cert': pemCert,
+      'key': pemKey,
+      'fingerprint': fp,
+      ...over,
+    };
 
-    test('parse normalizes the url and validates', () {
-      final c = AgentsConfig.parse(
-        url: 'https://192.0.2.10:7341/',
-        token: ' t0k ',
-        fingerprint: fp,
-      );
+    test('a bundle parses, normalizes the url and validates', () {
+      final c = AgentsConfig.fromJson(bundle());
       expect(c.url.toString(), 'https://192.0.2.10:7341');
-      expect(c.token, 't0k');
+      expect(c.name, 'desk-panel');
+      expect(c.isLocal, isFalse);
       expect(
         c.endpoint(['v1', 'agents', 'a/b', 'answer']).toString(),
         'https://192.0.2.10:7341/v1/agents/a%2Fb/answer',
       );
+      // Round trip through the panel's own file.
+      expect(AgentsConfig.fromJson(c.toJson()).toJson(), c.toJson());
+      for (final bad in [
+        {'url': 'http://x:1'},
+        {'ca': ''},
+        {'cert': 'nope'},
+        {'key': pemCert},
+        {'fingerprint': 'sha256:AB'},
+      ]) {
+        expect(
+          () => AgentsConfig.fromJson(bundle(bad)),
+          throwsFormatException,
+          reason: '$bad',
+        );
+      }
+      // The fingerprint is optional.
       expect(
-        () =>
-            AgentsConfig.parse(url: 'http://x:1', token: 't', fingerprint: fp),
-        throwsFormatException,
-      );
-      expect(
-        () =>
-            AgentsConfig.parse(url: 'https://x:1', token: '', fingerprint: fp),
-        throwsFormatException,
-      );
-      expect(
-        () => AgentsConfig.parse(
-          url: 'https://x:1',
-          token: 't',
-          fingerprint: 'sha256:AB',
-        ),
-        throwsFormatException,
+        AgentsConfig.fromJson(bundle({'fingerprint': null})).fingerprint,
+        isNull,
       );
     });
 
-    test('load: env triple wins, then file, else unconfigured', () async {
+    test('load: AGENTS_CONFIG, then the paths, else unconfigured', () async {
       final tmp = await Directory.systemTemp.createTemp('agentscfg');
       addTearDown(() => tmp.delete(recursive: true));
       final file = File('${tmp.path}/agents.json')
-        ..writeAsStringSync(
-          jsonEncode({
-            'url': 'https://mac:7341',
-            'token': 'f',
-            'fingerprint': fp,
-          }),
-        );
+        ..writeAsStringSync(jsonEncode(bundle({'url': 'https://mac:7341'})));
 
       var (cfg, why) = AgentsConfig.load(
         env: const {},
@@ -191,24 +197,36 @@ void main() {
       expect(cfg!.url.host, 'mac');
 
       (cfg, why) = AgentsConfig.load(
-        env: {
-          'AGENTS_URL': 'https://env:1',
-          'AGENTS_TOKEN': 'e',
-          'AGENTS_FINGERPRINT': fp,
-        },
-        paths: [file.path],
-      );
-      expect(cfg!.url.host, 'env');
-
-      (cfg, why) = AgentsConfig.load(
         env: {'AGENTS_CONFIG': file.path, 'HOME': '/nope'},
       );
-      expect(cfg!.token, 'f');
+      expect(cfg!.url.host, 'mac');
 
-      file.writeAsStringSync('{"url": "https://mac:7341"}');
+      // An old token-style file says to pair again.
+      file.writeAsStringSync(
+        '{"url": "https://mac:7341", "token": "t", "fingerprint": "$fp"}',
+      );
       (cfg, why) = AgentsConfig.load(env: const {}, paths: [file.path]);
       expect(cfg, isNull);
-      expect(why, contains('token'));
+      expect(why, contains('pair again'));
+    });
+
+    test('localAgentsConfig finds the daemon socket', () async {
+      final tmp = await Directory.systemTemp.createTemp('agentshome');
+      addTearDown(() => tmp.delete(recursive: true));
+      var (cfg, why) = localAgentsConfig(env: {'AGENTSTERM_HOME': tmp.path});
+      expect(cfg, isNull);
+      expect(why, contains('not running'));
+      final server = await HttpServer.bind(
+        InternetAddress(
+          '${tmp.path}/agentd.sock',
+          type: InternetAddressType.unix,
+        ),
+        0,
+      );
+      addTearDown(server.close);
+      (cfg, why) = localAgentsConfig(env: {'AGENTSTERM_HOME': tmp.path});
+      expect(cfg!.isLocal, isTrue);
+      expect(cfg.socketPath, '${tmp.path}/agentd.sock');
     });
   });
 
@@ -297,89 +315,160 @@ void main() {
     });
   });
 
-  group('HttpAgentsClient over TLS', () {
+  group('HttpAgentsClient', () {
     late Directory tmp;
     late HttpServer server;
-    late String goodFp;
+    late HttpServer local;
+    late Map<String, String> pem;
+    late String serverFp;
     final answers = <Map<String, dynamic>>[];
     var answerStatus = 204;
-    var sendState = true;
+    var rejectAll = false;
     final streams = <HttpResponse>[];
 
-    setUpAll(() async {
-      tmp = await Directory.systemTemp.createTemp('agentstls');
-      final r = await Process.run('openssl', [
+    Future<void> openssl(List<String> args) async {
+      final r = await Process.run('openssl', args, workingDirectory: tmp.path);
+      expect(r.exitCode, 0, reason: '${args.first}: ${r.stderr}');
+    }
+
+    // A CA, a server certificate for 127.0.0.1 and a device certificate signed
+    // by it, and a device certificate from another CA.
+    Future<void> makePki() async {
+      Future<void> ca(String name) => openssl([
         'req',
         '-x509',
         '-newkey',
-        'rsa:2048',
+        'ec',
+        '-pkeyopt',
+        'ec_paramgen_curve:prime256v1',
         '-nodes',
         '-days',
         '1',
-        '-keyout',
-        '${tmp.path}/key.pem',
-        '-out',
-        '${tmp.path}/cert.pem',
         '-subj',
-        '/CN=localhost',
+        '/CN=$name',
+        '-keyout',
+        '$name.key',
+        '-out',
+        '$name.pem',
         '-addext',
-        'subjectAltName=IP:127.0.0.1',
+        'basicConstraints=critical,CA:TRUE',
+        '-addext',
+        'keyUsage=critical,keyCertSign',
       ]);
-      expect(r.exitCode, 0, reason: '${r.stderr}');
-      final fp = await Process.run('openssl', [
-        'x509',
-        '-in',
-        '${tmp.path}/cert.pem',
-        '-noout',
-        '-fingerprint',
-        '-sha256',
-      ]);
-      // "sha256 Fingerprint=AB:CD:…" — the same text a user might paste.
-      goodFp = 'sha256:${(fp.stdout as String).split('=').last.trim()}';
-      final ctx = SecurityContext()
-        ..useCertificateChain('${tmp.path}/cert.pem')
-        ..usePrivateKey('${tmp.path}/key.pem');
+      Future<void> leaf(String name, String issuer, String ext) async {
+        File('${tmp.path}/$name.ext').writeAsStringSync(ext);
+        await openssl([
+          'req',
+          '-newkey',
+          'ec',
+          '-pkeyopt',
+          'ec_paramgen_curve:prime256v1',
+          '-nodes',
+          '-subj',
+          '/CN=$name',
+          '-keyout',
+          '$name.key',
+          '-out',
+          '$name.csr',
+        ]);
+        await openssl([
+          'x509',
+          '-req',
+          '-in',
+          '$name.csr',
+          '-CA',
+          '$issuer.pem',
+          '-CAkey',
+          '$issuer.key',
+          '-CAcreateserial',
+          '-days',
+          '1',
+          '-out',
+          '$name.pem',
+          '-extfile',
+          '$name.ext',
+        ]);
+      }
+
+      await ca('ca');
+      await ca('other');
+      await leaf(
+        'server',
+        'ca',
+        'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n',
+      );
+      await leaf('panel', 'ca', 'extendedKeyUsage=clientAuth\n');
+      await leaf('stranger', 'other', 'extendedKeyUsage=clientAuth\n');
+      pem = {
+        for (final f in ['ca', 'other', 'server', 'panel', 'stranger'])
+          for (final ext in ['pem', 'key'])
+            '$f.$ext': File('${tmp.path}/$f.$ext').readAsStringSync(),
+      };
+      final der = base64.decode(
+        pem['server.pem']!
+            .split('\n')
+            .where((l) => l.isNotEmpty && !l.startsWith('-----'))
+            .join(),
+      );
+      serverFp = formatFingerprint(sha256.convert(der).bytes);
+    }
+
+    Future<void> handle(HttpRequest req, {required bool tls}) async {
+      final res = req.response;
+      if (rejectAll || (tls && req.certificate == null)) {
+        res.statusCode = 401;
+        res.write('{"error":"this device isn\'t paired"}');
+        return res.close();
+      }
+      if (req.uri.path == '/v1/events') {
+        res.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+          charset: 'utf-8',
+        );
+        res.bufferOutput = false;
+        streams.add(res);
+        res.write(
+          ': ping\n\nevent: state\ndata: ${_fixture.replaceAll('\n', '\ndata: ')}\n\n',
+        );
+        await res.flush();
+        return; // held open
+      }
+      if (req.uri.path == '/v1/agents/h0m3l4/answer' && req.method == 'POST') {
+        answers.add(
+          jsonDecode(await utf8.decoder.bind(req).join())
+              as Map<String, dynamic>,
+        );
+        res.statusCode = answerStatus;
+        if (answerStatus == 409) res.write('{"error":"prompt changed"}');
+        return res.close();
+      }
+      res.statusCode = 404;
+      await res.close();
+    }
+
+    setUpAll(() async {
+      tmp = await Directory.systemTemp.createTemp('agentstls');
+      await makePki();
+      final ctx = SecurityContext(withTrustedRoots: false)
+        ..useCertificateChainBytes(utf8.encode(pem['server.pem']!))
+        ..usePrivateKeyBytes(utf8.encode(pem['server.key']!))
+        ..setTrustedCertificatesBytes(utf8.encode(pem['ca.pem']!));
       server = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4,
         0,
         ctx,
+        requestClientCertificate: true,
       );
-      server.listen((req) async {
-        final res = req.response;
-        if (req.headers.value('authorization') != 'Bearer tok') {
-          res.statusCode = 401;
-          res.write('{"error":"bad token"}');
-          return res.close();
-        }
-        if (req.uri.path == '/v1/events') {
-          res.headers.contentType = ContentType(
-            'text',
-            'event-stream',
-            charset: 'utf-8',
-          );
-          res.bufferOutput = false;
-          streams.add(res);
-          if (sendState) {
-            res.write(
-              ': ping\n\nevent: state\ndata: ${_fixture.replaceAll('\n', '\ndata: ')}\n\n',
-            );
-            await res.flush();
-          }
-          return; // held open
-        }
-        if (req.uri.path == '/v1/agents/h0m3l4/answer' &&
-            req.method == 'POST') {
-          answers.add(
-            jsonDecode(await utf8.decoder.bind(req).join())
-                as Map<String, dynamic>,
-          );
-          res.statusCode = answerStatus;
-          if (answerStatus == 409) res.write('{"error":"prompt changed"}');
-          return res.close();
-        }
-        res.statusCode = 404;
-        await res.close();
-      });
+      server.listen((r) => handle(r, tls: true));
+      local = await HttpServer.bind(
+        InternetAddress(
+          '${tmp.path}/agentd.sock',
+          type: InternetAddressType.unix,
+        ),
+        0,
+      );
+      local.listen((r) => handle(r, tls: false));
     });
 
     tearDownAll(() async {
@@ -389,15 +478,23 @@ void main() {
         } catch (_) {}
       }
       await server.close(force: true);
+      await local.close(force: true);
       await tmp.delete(recursive: true);
     });
 
-    AgentsConfig cfg({String? fingerprint, String token = 'tok'}) =>
-        AgentsConfig.parse(
-          url: 'https://127.0.0.1:${server.port}',
-          token: token,
-          fingerprint: fingerprint ?? goodFp,
-        );
+    AgentsConfig cfg({
+      String host = '127.0.0.1',
+      String device = 'panel',
+      String ca = 'ca',
+      String? fingerprint,
+    }) => AgentsConfig.fromJson({
+      'name': device,
+      'url': 'https://$host:${server.port}',
+      'ca': pem['$ca.pem'],
+      'cert': pem['$device.pem'],
+      'key': pem['$device.key'],
+      'fingerprint': ?fingerprint,
+    });
 
     Future<AgentsSnapshot> until(
       HttpAgentsClient c,
@@ -415,44 +512,89 @@ void main() {
       return c.snapshot.value;
     }
 
-    test('pinned cert: streams state, posts answers, maps 409', () async {
-      final c = HttpAgentsClient(loadConfig: () => (cfg(), null));
-      addTearDown(c.dispose);
-      final s = await until(c, (s) => s.link == AgentsLink.connected);
-      expect(s.state!.agents, hasLength(11));
+    test(
+      'device certificate: streams state, posts answers, maps 409',
+      () async {
+        final c = HttpAgentsClient(loadConfig: () => (cfg(), null));
+        addTearDown(c.dispose);
+        final s = await until(c, (s) => s.link == AgentsLink.connected);
+        expect(s.state!.agents, hasLength(11));
 
-      answerStatus = 204;
-      expect((await c.answer('h0m3l4', 'p17', '1')).isOk, isTrue);
-      expect(answers.last, {'promptId': 'p17', 'key': '1'});
+        answerStatus = 204;
+        expect((await c.answer('h0m3l4', 'p17', '1')).isOk, isTrue);
+        expect(answers.last, {'promptId': 'p17', 'key': '1'});
 
-      answerStatus = 409;
-      final r = await c.answer('h0m3l4', 'p16', '1');
-      expect(r.kind, AgentsResultKind.conflict);
-      answerStatus = 204;
-    });
+        answerStatus = 409;
+        final r = await c.answer('h0m3l4', 'p16', '1');
+        expect(r.kind, AgentsResultKind.conflict);
+        answerStatus = 204;
+      },
+    );
 
-    test('a different certificate is refused (no fallback to CAs)', () async {
-      final wrong = 'sha256:${List.filled(32, '00').join(':')}';
+    test(
+      'a host the certificate doesn\'t name: only the pinned fingerprint',
+      () async {
+        // "localhost" isn't in the server certificate (only 127.0.0.1).
+        final pinned = HttpAgentsClient(
+          loadConfig: () =>
+              (cfg(host: 'localhost', fingerprint: serverFp), null),
+        );
+        addTearDown(pinned.dispose);
+        await until(pinned, (s) => s.link == AgentsLink.connected);
+
+        final unpinned = HttpAgentsClient(
+          loadConfig: () => (cfg(host: 'localhost'), null),
+          backoff: Backoff(initial: const Duration(milliseconds: 50)),
+        );
+        addTearDown(unpinned.dispose);
+        final s = await until(unpinned, (s) => s.link == AgentsLink.offline);
+        expect(s.problem, 'certificate mismatch');
+      },
+    );
+
+    test('a server from another CA is refused', () async {
       final c = HttpAgentsClient(
-        loadConfig: () => (cfg(fingerprint: wrong), null),
+        loadConfig: () => (cfg(ca: 'other'), null),
         backoff: Backoff(initial: const Duration(milliseconds: 50)),
       );
       addTearDown(c.dispose);
       final s = await until(c, (s) => s.link == AgentsLink.offline);
       expect(s.problem, 'certificate mismatch');
       expect(s.state, isNull);
-      final r = await c.focus('h0m3l4');
-      expect(r.kind, AgentsResultKind.failed);
+      expect((await c.focus('h0m3l4')).kind, AgentsResultKind.failed);
     });
 
-    test('a rejected token reads as such', () async {
+    test('a device certificate from another CA never gets in', () async {
       final c = HttpAgentsClient(
-        loadConfig: () => (cfg(token: 'nope'), null),
+        loadConfig: () => (cfg(device: 'stranger'), null),
         backoff: Backoff(initial: const Duration(milliseconds: 50)),
       );
       addTearDown(c.dispose);
       final s = await until(c, (s) => s.link == AgentsLink.offline);
-      expect(s.problem, 'token rejected');
+      expect(s.state, isNull);
+    });
+
+    test('an unpaired device reads as such', () async {
+      rejectAll = true;
+      addTearDown(() => rejectAll = false);
+      final c = HttpAgentsClient(
+        loadConfig: () => (cfg(), null),
+        backoff: Backoff(initial: const Duration(milliseconds: 50)),
+      );
+      addTearDown(c.dispose);
+      final s = await until(c, (s) => s.link == AgentsLink.offline);
+      expect(s.problem, startsWith('not paired'));
+    });
+
+    test('the local unix socket: no TLS, no network', () async {
+      final c = HttpAgentsClient(
+        loadConfig: () => (AgentsConfig.unix('${tmp.path}/agentd.sock'), null),
+      );
+      addTearDown(c.dispose);
+      final s = await until(c, (s) => s.link == AgentsLink.connected);
+      expect(s.state!.agents, hasLength(11));
+      expect((await c.answer('h0m3l4', 'p17', '2')).isOk, isTrue);
+      expect(answers.last, {'promptId': 'p17', 'key': '2'});
     });
 
     test(

@@ -23,8 +23,8 @@ var Settings = map[string]struct {
 	Help   string
 }{
 	"term":    {[]string{TermITerm, TermTmux, TermWindow}, "how focus shows an agent: iterm = select its iTerm tab, tmux = switch your last-used tab to it, window = just raise its window"},
-	"web":     {[]string{"local", "lan"}, "local = dashboard on this Mac only; lan = also on your local network at :7342 (login link: agentctl web --phone)"},
 	"restore": {[]string{RestoreAsk, RestoreAuto}, "agents lost with the tmux server (crash, reboot): ask = keep them for `agentctl restore`, auto = bring them back right away"},
+	"header":  {[]string{HeaderOn, HeaderOff}, "on = a band at the top of each agent terminal with its critter, name, status, context and cost; off = none"},
 	"mouse":   {[]string{MouseTmux, MouseNative}, "tmux = wheel scrolls tmux history, drag selects and copies, click opens links; native = your terminal handles the mouse (its own scrollback)"},
 }
 

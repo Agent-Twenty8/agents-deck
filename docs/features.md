@@ -33,7 +33,6 @@ Tap a tile for its card:
 |---|---|
 | **Menu bar** | A critter icon that turns orange when an agent needs you; the deck drops down in the top-right corner. Esc, the ‹ button or a click elsewhere hides it; right-click opens the web dashboard. |
 | **Browser** | `agentctl web` opens the dashboard with a one-time login link. It has a grid view and a panel view that mirrors the 720×720 desk panel. |
-| **Phone** | `agentctl set web lan` also serves the dashboard on your local network (port 7342); `agentctl web --phone` prints a 5-minute login link. On a phone it opens in the deck view; the panel view toggle switches to a list of agent rows. |
 | **Desk panel** | A 4″ 720×720 touch panel (Raspberry Pi CM4, Flutter) talking to the daemon over Wi-Fi, TLS with a pinned certificate. Cards close with an edge swipe. |
 | **Terminal** | `agentctl ls`, `sessions`, `resume`… Agent terminals are tmux sessions you attach to with `agentctl attach`, or jump to with **focus terminal**. |
 
@@ -66,6 +65,7 @@ Added sessions are **watched**: status (working, idle, hungry when a turn finish
 - **Focus.** iTerm's local API selects the agent's tab and pane, then iTerm's `StealFocus` escape brings the window forward, including a hidden hotkey window. `agentctl set term tmux` switches your last-used tab to the agent instead; `window` only raises its window.
 - **Mouse.** tmux mouse mode is on, so the wheel scrolls the agent's history. A drag selection stays highlighted and goes to the clipboard; double-click selects a word, path or URL, triple-click a line; typing afterwards goes to the agent. A click on a link opens it (http, https and file links only). `agentctl set mouse native` hands the mouse to iTerm instead.
 - **Tab names** follow the name Claude Code gives the session.
+- **Header.** Each agent terminal has a band at the top: the agent's critter (Claude Code's logo, in quarter blocks) in its hat, its name, status and how long it has been in it, folder, branch, model and effort, the context bar, tokens, cost and turns, what it is doing or asking, and its subagents. `agentctl set header off` removes it.
 - **After an iTerm crash** the agents keep running in tmux; `agentctl reopen` opens a tab for each one again.
 
 ## Restore after a tmux crash or reboot
@@ -85,5 +85,6 @@ If the tmux server dies under live agents (a crash, a reboot), they are marked *
 | `term` | `iterm` (default), `tmux`, `window`: how focus shows an agent |
 | `mouse` | `tmux` (default), `native`: who owns the mouse in agent terminals |
 | `restore` | `ask` (default), `auto`: what happens to agents lost with tmux |
+| `header` | `on` (default), `off`: the band at the top of agent terminals |
 | `web` | `local` (default), `lan`: also serve the dashboard on your local network |
 | `hat` | `agentctl set hat <agent|folder> <shape> [colour]`, `none` or `auto`: the hat of a working folder (stored in `config.json` `"hats"`) |

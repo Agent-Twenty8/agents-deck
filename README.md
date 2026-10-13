@@ -62,9 +62,8 @@ agentctl move <id|title> <n>        put an agent at position n (free spots are f
 agentctl sessions [words]           look up any Claude session by id, title, folder, branch or last prompt
 agentctl resume <id-prefix>         continue a Claude session as an agent
 agentctl web                        open the dashboard
-agentctl set web lan|local          also serve the dashboard on your local network (:7342)
-agentctl web --phone                one-time login link for your phone (valid 5 minutes)
-agentctl pair [--rotate]            values for pairing the panel
+agentctl pair <name> [--bundle F]   pair a device (the panel): its own certificate, scope view|act|admin
+agentctl devices [revoke <name>]    paired devices and serial boards; cut one off
 agentctl set term iterm|tmux|window how "focus" shows an agent
 agentctl set mouse tmux|native      who owns the mouse in agent terminals
 agentctl sim start|stop             simulated agents for demos
@@ -83,7 +82,7 @@ flowchart LR
   T["~/.claude/projects/*.jsonl"] -- "tail: tokens, context, model, title" --> D
   D -- "send-keys: answers, Esc" --> tmux
   D -- "/v1 + SSE · 127.0.0.1" --> W["web dashboard"]
-  D -- "/v1 + SSE · TLS, pinned cert, token" --> P["desk panel (Flutter)"]
+  D -- "/v1 + SSE · TLS 1.3, device certificate" --> P["desk panel (Flutter)"]
   D -- "iTerm API + StealFocus escape" --> I["iTerm tab"]
   X["~/.codex: state db + rollouts"] -- "read-only: threads, status, tokens" --> D
   classDef a fill:#FF4D00,color:#0A0A0A,stroke:#FF4D00
@@ -95,8 +94,9 @@ Each agent gets its own hook settings, so your global `~/.claude/settings.json` 
 ## Security & privacy
 
 - **Nothing leaves your machine:** no telemetry, no update checks, no third-party Go dependencies.
-- **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks. `agentctl set web lan` opts into serving it to your phone over your local network.
-- **The panel and the menu bar app** connect over TLS with a pinned certificate and a 256-bit token.
+- **The web dashboard is loopback-only,** behind a one-time login link, a strict CSP and host and origin checks.
+- **The menu bar app** uses the daemon's unix socket: nothing crosses the network.
+- **The desk panel** connects over TLS 1.3 with its own client certificate, signed by the deck's local CA (its key is in the macOS Keychain). Each device has a scope (view, act or admin), shows up in `agentctl devices`, can be revoked on its own, and every action it takes lands in an audit log.
 - **Codex files are only read.** App control is a single Apple event (asking iTerm for its API cookie): no synthetic keystrokes, no screen reading.
 - **Secrets** live in `~/.local/share/agents-terminal/` (`0700` / `0600`).
 

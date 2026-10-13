@@ -3,49 +3,90 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
-/// Pairing values for the agents daemon, exactly what `agentctl pair`
-/// prints: `{"url": "https://…:7341", "token": "…", "fingerprint":
-/// "sha256:AB:CD:…"}`.
+/// How a client reaches the agents daemon.
 ///
-/// Each app says where it keeps them (the desk panel passes its own paths
-/// to [load]); the default is `~/.config/agents-deck/agents.json`.
-/// `AGENTS_URL` + `AGENTS_TOKEN` + `AGENTS_FINGERPRINT` (all three) or
-/// `AGENTS_CONFIG=<file>` override the files. On the Mac running agentctl,
-/// [localAgentsConfig] needs no file at all.
+/// A paired network device (the desk panel) holds a bundle from
+/// `agentctl pair <name> --bundle FILE`: the listener's https URL, the deck's
+/// CA certificate, its own client certificate and key, and the listener's
+/// certificate fingerprint (accepted when the host name isn't one the
+/// certificate covers). The connection is TLS 1.3 with the client certificate;
+/// the server is verified against the CA.
+///
+/// On the Mac running agentctl, [localAgentsConfig] uses the daemon's unix
+/// socket instead: nothing crosses the network.
+///
+/// Each app says where it keeps its bundle (the desk panel passes its own
+/// paths to [load]); the default is `~/.config/agents-deck/agents.json`, and
+/// `AGENTS_CONFIG=<file>` overrides it.
 class AgentsConfig {
   const AgentsConfig({
     required this.url,
-    required this.token,
-    required this.fingerprint,
+    this.name = '',
+    this.ca = '',
+    this.cert = '',
+    this.key = '',
+    this.fingerprint,
+    this.socketPath,
   });
 
-  /// Daemon base URL (https only), no trailing slash.
-  final Uri url;
-  final String token;
+  /// The daemon's unix socket on this machine.
+  AgentsConfig.unix(String path)
+    : this(
+        url: Uri(scheme: 'http', host: 'localhost'),
+        socketPath: path,
+      );
 
-  /// SHA-256 of the server certificate's DER bytes (32 bytes).
-  final List<int> fingerprint;
+  /// Daemon base URL, no trailing slash (http://localhost for the socket).
+  final Uri url;
+
+  /// The device's name on the deck.
+  final String name;
+
+  /// PEM: the deck's CA, this device's certificate and private key.
+  final String ca;
+  final String cert;
+  final String key;
+
+  /// SHA-256 of the listener's certificate (32 bytes), or null.
+  final List<int>? fingerprint;
+
+  /// Set for the local unix socket; then there's no TLS.
+  final String? socketPath;
+
+  bool get isLocal => socketPath != null;
 
   static const fileName = 'agents.json';
 
-  /// Validates and normalizes; throws [FormatException] with a short,
-  /// user-facing reason.
-  static AgentsConfig parse({
-    required Object? url,
-    required Object? token,
-    required Object? fingerprint,
-  }) {
-    final u = url is String ? Uri.tryParse(url.trim()) : null;
+  /// Validates a bundle and normalizes it; throws [FormatException] with a
+  /// short, user-facing reason.
+  static AgentsConfig fromJson(Map<String, dynamic> j) {
+    final u = j['url'] is String
+        ? Uri.tryParse((j['url'] as String).trim())
+        : null;
     if (u == null || u.scheme != 'https' || u.host.isEmpty) {
       throw const FormatException('url must be https://host:port');
     }
-    final t = token is String ? token.trim() : '';
-    if (t.isEmpty) throw const FormatException('token required');
-    final fp = fingerprint is String ? parseFingerprint(fingerprint) : null;
-    if (fp == null) {
-      throw const FormatException(
-        'fingerprint must be sha256:AB:CD:… (32 bytes)',
-      );
+    String pem(String field, String label) {
+      final v = j[field];
+      if (v is! String || !v.contains('$label-----')) {
+        throw FormatException(
+          'no $field: pair again with `agentctl pair <name> --bundle FILE`',
+        );
+      }
+      return v.trim();
+    }
+
+    final ca = pem('ca', 'CERTIFICATE');
+    final cert = pem('cert', 'CERTIFICATE');
+    final key = pem('key', 'PRIVATE KEY');
+    List<int>? fp;
+    if (j['fingerprint'] case final String f when f.trim().isNotEmpty) {
+      fp = parseFingerprint(f);
+      if (fp == null) {
+        throw const FormatException(
+          'fingerprint must be sha256:AB:CD:… (32 bytes)',
+        );
+      }
     }
     var path = u.path;
     while (path.endsWith('/')) {
@@ -58,18 +99,22 @@ class AgentsConfig {
         port: u.hasPort ? u.port : null,
         path: path,
       ),
-      token: t,
+      name: j['name'] is String ? j['name'] as String : '',
+      ca: ca,
+      cert: cert,
+      key: key,
       fingerprint: fp,
     );
   }
 
-  static AgentsConfig fromJson(Map<String, dynamic> j) =>
-      parse(url: j['url'], token: j['token'], fingerprint: j['fingerprint']);
-
   Map<String, dynamic> toJson() => {
+    'name': name,
     'url': url.toString(),
-    'token': token,
-    'fingerprint': formatFingerprint(fingerprint),
+    'ca': ca,
+    'cert': cert,
+    'key': key,
+    if (fingerprint case final f?) 'fingerprint': formatFingerprint(f),
+    'socket': ?socketPath,
   };
 
   /// `url` + path segments (each segment is escaped on its own, so an agent
@@ -78,7 +123,7 @@ class AgentsConfig {
     pathSegments: [...url.pathSegments.where((s) => s.isNotEmpty), ...segments],
   );
 
-  /// Resolution order: env triple → `$AGENTS_CONFIG` → [paths] (default:
+  /// Resolution order: `$AGENTS_CONFIG` → [paths] (default:
   /// ~/.config/agents-deck/agents.json). Returns the config, or null with
   /// the reason when nothing usable exists (null reason = not configured).
   static (AgentsConfig?, String?) load({
@@ -86,16 +131,6 @@ class AgentsConfig {
     List<String>? paths,
   }) {
     final e = env ?? Platform.environment;
-    final eu = e['AGENTS_URL'],
-        et = e['AGENTS_TOKEN'],
-        ef = e['AGENTS_FINGERPRINT'];
-    if (eu != null && et != null && ef != null) {
-      try {
-        return (parse(url: eu, token: et, fingerprint: ef), null);
-      } on FormatException catch (x) {
-        return (null, 'AGENTS_* env: ${x.message}');
-      }
-    }
     final candidates =
         paths ??
         [
@@ -125,47 +160,24 @@ class AgentsConfig {
   }
 }
 
-/// "sha256:AB:CD:…", "ab cd …", "abcd…" → 32 bytes; null if malformed.
-/// Pairing with the daemon on this same Mac, straight from its own files
-/// (`~/.local/share/agents-terminal`, or `$AGENTSTERM_HOME`): the panel
-/// listener on 127.0.0.1, its device token and the pinned fingerprint of its
-/// certificate. Null with a reason when agentctl isn't installed or paired.
-(AgentsConfig?, String?) localAgentsConfig({
-  Map<String, String>? env,
-  int port = 7341,
-}) {
+/// The daemon on this same Mac, over its unix socket
+/// (`~/.local/share/agents-terminal/agentd.sock`, or under `$AGENTSTERM_HOME`):
+/// only your macOS user can open it, and nothing crosses the network. Null
+/// with a reason when agentctl isn't running.
+(AgentsConfig?, String?) localAgentsConfig({Map<String, String>? env}) {
   final e = env ?? Platform.environment;
   final home =
       e['AGENTSTERM_HOME'] ??
       (e['HOME'] == null ? null : '${e['HOME']}/.local/share/agents-terminal');
   if (home == null) return (null, 'no home directory');
-  String read(String name) => File('$home/$name').readAsStringSync().trim();
-  try {
-    final token = read('device-token');
-    final pem = read('tls-cert.pem');
-    final body = pem
-        .split('\n')
-        .where((l) => l.isNotEmpty && !l.startsWith('-----'))
-        .join();
-    final der = base64.decode(body);
-    return (
-      AgentsConfig(
-        url: Uri(scheme: 'https', host: '127.0.0.1', port: port),
-        token: token,
-        fingerprint: sha256.convert(der).bytes,
-      ),
-      null,
-    );
-  } on FileSystemException {
-    return (
-      null,
-      'agentctl is not set up here yet: run `agentctl install` and `agentctl pair`',
-    );
-  } on FormatException {
-    return (null, 'agentctl certificate is unreadable');
+  final sock = '$home/agentd.sock';
+  if (FileSystemEntity.typeSync(sock) != FileSystemEntityType.unixDomainSock) {
+    return (null, 'agentctl is not running here: run `agentctl install`');
   }
+  return (AgentsConfig.unix(sock), null);
 }
 
+/// "sha256:AB:CD:…", "ab cd …", "abcd…" → 32 bytes; null if malformed.
 List<int>? parseFingerprint(String s) {
   var v = s.trim();
   if (v.toLowerCase().startsWith('sha256:')) v = v.substring(7);

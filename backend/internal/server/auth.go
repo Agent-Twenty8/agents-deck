@@ -1,19 +1,9 @@
 package server
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/pem"
-	"fmt"
-	"math/big"
-	"net"
 	"os"
 	"strings"
 	"sync"
@@ -44,63 +34,6 @@ func RotateSecret(path string) (string, error) {
 
 func equal(a, b string) bool {
 	return len(a) > 0 && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
-
-// LoadOrCreateCert returns the device listener's self-signed certificate. The
-// panel pins its SHA-256 fingerprint, so hostnames/IPs in it are informational.
-func LoadOrCreateCert(certPath, keyPath, hostname string) (tls.Certificate, error) {
-	if c, err := tls.LoadX509KeyPair(certPath, keyPath); err == nil {
-		return c, nil
-	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
-	tpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "agents-terminal " + hostname},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{hostname, "localhost"},
-	}
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			if ipn, ok := a.(*net.IPNet); ok {
-				tpl.IPAddresses = append(tpl.IPAddresses, ipn.IP)
-			}
-		}
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	kb, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kb}), 0o600); err != nil {
-		return tls.Certificate{}, err
-	}
-	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
-		return tls.Certificate{}, err
-	}
-	return tls.LoadX509KeyPair(certPath, keyPath)
-}
-
-// Fingerprint formats the SHA-256 of the leaf certificate as "sha256:AB:CD:…".
-func Fingerprint(c tls.Certificate) string {
-	if len(c.Certificate) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256(c.Certificate[0])
-	parts := make([]string, len(sum))
-	for i, b := range sum {
-		parts[i] = fmt.Sprintf("%02X", b)
-	}
-	return "sha256:" + strings.Join(parts, ":")
 }
 
 // loginCodes are one-time, 60-second codes that turn into a web session cookie.
