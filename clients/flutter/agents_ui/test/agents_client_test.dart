@@ -326,79 +326,15 @@ void main() {
     var rejectAll = false;
     final streams = <HttpResponse>[];
 
-    Future<void> openssl(List<String> args) async {
-      final r = await Process.run('openssl', args, workingDirectory: tmp.path);
-      expect(r.exitCode, 0, reason: '${args.first}: ${r.stderr}');
-    }
-
-    // A CA, a server certificate for 127.0.0.1 and a device certificate signed
-    // by it, and a device certificate from another CA.
+    // A CA, a server certificate for 127.0.0.1 and a device certificate
+    // signed by it, and a device certificate from another CA: test-only
+    // fixtures (test/fixtures/pki/generate.sh).
     Future<void> makePki() async {
-      Future<void> ca(String name) => openssl([
-        'req',
-        '-x509',
-        '-newkey',
-        'ec',
-        '-pkeyopt',
-        'ec_paramgen_curve:prime256v1',
-        '-nodes',
-        '-days',
-        '1',
-        '-subj',
-        '/CN=$name',
-        '-keyout',
-        '$name.key',
-        '-out',
-        '$name.pem',
-        '-addext',
-        'basicConstraints=critical,CA:TRUE',
-        '-addext',
-        'keyUsage=critical,keyCertSign',
-      ]);
-      Future<void> leaf(String name, String issuer, String ext) async {
-        File('${tmp.path}/$name.ext').writeAsStringSync(ext);
-        await openssl([
-          'req',
-          '-newkey',
-          'ec',
-          '-pkeyopt',
-          'ec_paramgen_curve:prime256v1',
-          '-nodes',
-          '-subj',
-          '/CN=$name',
-          '-keyout',
-          '$name.key',
-          '-out',
-          '$name.csr',
-        ]);
-        await openssl([
-          'x509',
-          '-req',
-          '-in',
-          '$name.csr',
-          '-CA',
-          '$issuer.pem',
-          '-CAkey',
-          '$issuer.key',
-          '-CAcreateserial',
-          '-days',
-          '1',
-          '-out',
-          '$name.pem',
-          '-extfile',
-          '$name.ext',
-        ]);
+      for (final f in Directory('test/fixtures/pki').listSync()) {
+        if (f is File && !f.path.endsWith('.sh')) {
+          f.copySync('${tmp.path}/${f.uri.pathSegments.last}');
+        }
       }
-
-      await ca('ca');
-      await ca('other');
-      await leaf(
-        'server',
-        'ca',
-        'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\n',
-      );
-      await leaf('panel', 'ca', 'extendedKeyUsage=clientAuth\n');
-      await leaf('stranger', 'other', 'extendedKeyUsage=clientAuth\n');
       pem = {
         for (final f in ['ca', 'other', 'server', 'panel', 'stranger'])
           for (final ext in ['pem', 'key'])
