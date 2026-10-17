@@ -53,6 +53,18 @@ Threads from the Codex app (and Codex CLI) active in the last 6 hours appear on 
 
 `config.json`: `"codex": false` turns it off; `"codexWindowHours": 12` widens the window.
 
+## Agents in Orca
+
+Agents you run in [Orca](https://github.com/stablyai/orca) (Claude Code, Codex and others, each in its
+own worktree) show up on the deck by themselves while Orca is open. Their status comes from Orca, which
+reads the agents' own hooks: working, waiting for you, done. Tokens, context and cost come from the
+agent's transcript when it's a Claude session.
+
+From the deck, **open in orca** switches Orca to the agent's terminal and brings Orca forward; answers
+and **interrupt** are typed into that terminal; **hide** takes the agent off the deck until it's active
+again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
+`send`, `switch`). `config.json`: `"orca": false` turns it off.
+
 ## Claude sessions started elsewhere
 
 Claude Code sessions you start by hand in any terminal (plain `claude`) can join the deck too. Tap a free cell (or **+ session** on the web dashboard, or `agentctl live` / `agentctl add <session>`) to see them and add one; it lands in that cell.

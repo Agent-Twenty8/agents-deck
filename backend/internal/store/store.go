@@ -27,6 +27,9 @@ type Entry struct {
 	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
 	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
 	LiveAttach    string      `json:"-"`                  // a watched background session: its `claude attach` id
+	OrcaTerminal  string      `json:"-"`                  // an agent in Orca: its terminal handle
+	OrcaPane      string      `json:"-"`                  // …and Orca's pane key (stable id)
+	OrcaTurn      int64       `json:"-"`                  // …stateStartedAt of the state its prompt was built for
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

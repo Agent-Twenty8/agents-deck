@@ -143,7 +143,7 @@ type FieldGroup int32
 
 const (
 	FieldGroup_FIELDS_NONE    FieldGroup = 0
-	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, hat, activity.tool, subagent_count
+	FieldGroup_FIELDS_TILE    FieldGroup = 1 // title, tool, status, status_since, folder, context, unseen, lost, focused, external, app, hat, activity.tool, subagent_count
 	FieldGroup_FIELDS_CARD    FieldGroup = 2 // ai_title, cwd, branch, model, model_label, effort, activity.detail, last_prompt, error, resumable, attached, subagents, started_at, updated_at
 	FieldGroup_FIELDS_PROMPT  FieldGroup = 4 // waiting
 	FieldGroup_FIELDS_NUMBERS FieldGroup = 8 // tokens, cost_usd, turns
@@ -1504,6 +1504,7 @@ type Agent struct {
 	SubagentCount uint32                 `protobuf:"varint,30,opt,name=subagent_count,json=subagentCount,proto3" json:"subagent_count,omitempty"` // len(subagents), sent with TILE so a small board can show it
 	StartedAtMs   int64                  `protobuf:"varint,31,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
 	UpdatedAtMs   int64                  `protobuf:"varint,32,opt,name=updated_at_ms,json=updatedAtMs,proto3" json:"updated_at_ms,omitempty"`
+	App           string                 `protobuf:"bytes,33,opt,name=app,proto3" json:"app,omitempty"` // the app it runs in when not agentctl's: "orca"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1760,6 +1761,13 @@ func (x *Agent) GetUpdatedAtMs() int64 {
 		return x.UpdatedAtMs
 	}
 	return 0
+}
+
+func (x *Agent) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
 }
 
 type Activity struct {
@@ -3312,7 +3320,7 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\fAgentChanged\x12/\n" +
 	"\x05agent\x18\x01 \x01(\v2\x19.agentsdeck.link.v1.AgentR\x05agent\"\x1e\n" +
 	"\fAgentRemoved\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xac\b\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xbe\b\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04slot\x18\x02 \x01(\rR\x04slot\x12\x14\n" +
@@ -3348,7 +3356,8 @@ const file_agentsdeck_link_v1_link_proto_rawDesc = "" +
 	"\tsubagents\x18\x1d \x03(\v2\x1c.agentsdeck.link.v1.SubagentR\tsubagents\x12%\n" +
 	"\x0esubagent_count\x18\x1e \x01(\rR\rsubagentCount\x12\"\n" +
 	"\rstarted_at_ms\x18\x1f \x01(\x03R\vstartedAtMs\x12\"\n" +
-	"\rupdated_at_ms\x18  \x01(\x03R\vupdatedAtMs\"6\n" +
+	"\rupdated_at_ms\x18  \x01(\x03R\vupdatedAtMs\x12\x10\n" +
+	"\x03app\x18! \x01(\tR\x03app\"6\n" +
 	"\bActivity\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x16\n" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"\xca\x01\n" +

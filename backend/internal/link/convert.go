@@ -42,7 +42,7 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		p.Title, p.Tool, p.Status = a.Title, tools[a.Tool], statuses[a.Status]
 		p.StatusSinceMs, p.Folder = ms(a.StatusSince), a.Folder
 		p.Context = &linkpb.Context{Used: a.Context.Used, Window: a.Context.Window}
-		p.Unseen, p.Lost, p.Focused, p.External = a.Unseen, a.Lost, a.Focused, a.External
+		p.Unseen, p.Lost, p.Focused, p.External, p.App = a.Unseen, a.Lost, a.Focused, a.External, a.App
 		if a.Hat != nil {
 			p.Hat = &linkpb.Hat{Shape: a.Hat.Shape, Color: a.Hat.Color, Automatic: a.Hat.Auto}
 		}

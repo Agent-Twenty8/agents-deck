@@ -945,6 +945,7 @@ func serve(args []string) error {
 		d.Adopt()
 		go d.Run()
 		go d.WatchCodex()
+		go d.WatchOrca()
 		go d.WatchLive()
 		ctl, lc = d, d
 	}

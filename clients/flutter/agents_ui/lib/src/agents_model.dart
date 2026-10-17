@@ -253,6 +253,7 @@ class Agent {
     this.lost = false,
     this.unseen = false,
     this.external = false,
+    this.app = '',
     this.subagents = const [],
     this.hat,
     this.startedAt,
@@ -314,12 +315,20 @@ class Agent {
   /// The pixel hat for its working folder; null = none.
   final AgentHat? hat;
 
+  /// The app an external agent runs in ("orca"), or "" for agentctl's own
+  /// and plain mirrors.
+  final String app;
+
+  /// An agent running in the Orca app: focus opens its terminal there, and
+  /// answer and interrupt work from the deck.
+  bool get inOrca => app == 'orca';
+
   /// A Codex app thread (view and open in the app only).
-  bool get codexThread => external && tool == 'codex';
+  bool get codexThread => external && tool == 'codex' && app.isEmpty;
 
   /// A Claude session started by hand in another terminal and added to the
   /// deck: watched (status, context, cost), answered in its own terminal.
-  bool get watched => external && tool == 'claude';
+  bool get watched => external && tool == 'claude' && app.isEmpty;
 
   /// Idle with an unreviewed result.
   bool get hungry => unseen && status == AgentStatus.idle;
@@ -365,6 +374,7 @@ class Agent {
       lost: j['lost'] == true,
       unseen: j['unseen'] == true,
       external: j['external'] == true,
+      app: j['app'] is String ? j['app'] as String : '',
       hat: AgentHat.fromJson(j['hat']),
       subagents: [
         if (j['subagents'] case final List l)
