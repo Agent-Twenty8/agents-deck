@@ -201,7 +201,7 @@ class _AgentDetailState extends State<AgentDetail> {
       key: const Key('agent-remove'),
       label: _flashKey == 'dismiss' && _flash == _Flash.sent
           ? 'removed'
-          : a.codexThread
+          : a.codexThread || a.inOrca
           ? 'hide'
           : a.watched
           ? 'remove from deck'
@@ -747,6 +747,8 @@ class _AgentDetailState extends State<AgentDetail> {
                         ? 'focused'
                         : a.codexThread
                         ? 'open in codex'
+                        : a.inOrca
+                        ? 'open in orca'
                         : a.hungry
                         ? 'review in terminal'
                         : 'focus terminal',
@@ -758,7 +760,7 @@ class _AgentDetailState extends State<AgentDetail> {
                     pressedInk: DeckHud.bg,
                   ),
                 ),
-              if (running && !a.external) ...[
+              if (running && (!a.external || a.inOrca)) ...[
                 const SizedBox(width: 14),
                 SizedBox(
                   width: 200,

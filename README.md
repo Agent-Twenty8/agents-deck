@@ -23,6 +23,8 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | <img src="docs/images/panel-board-v2.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
+**Agents in [Orca](https://github.com/stablyai/orca)** appear on the deck too, answerable and focusable like the rest.
+
 **Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from.
 
 Each critter shows what its agent is doing: thinking, reading, editing, running commands, compacting, waiting for you, or hungry for review once it's done. It wears a pixel hat picked by its working folder, so a project's agents look alike; tap the critter to pick another. The full tour is in [docs/features.md](docs/features.md).

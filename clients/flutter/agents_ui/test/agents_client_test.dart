@@ -231,6 +231,32 @@ void main() {
   });
 
   group('model', () {
+    test(
+      'an agent in Orca is neither a Codex thread nor a watched session',
+      () {
+        final s = AgentsState.fromJson({
+          'agents': [
+            {
+              'id': 'o1',
+              'status': 'running',
+              'tool': 'claude',
+              'external': true,
+              'app': 'orca',
+            },
+            {'id': 'l1', 'status': 'idle', 'tool': 'claude', 'external': true},
+            {'id': 'c1', 'status': 'idle', 'tool': 'codex', 'external': true},
+          ],
+        });
+        final [orca, watched, codex] = s.agents;
+        expect(
+          (orca.inOrca, orca.watched, orca.codexThread),
+          (true, false, false),
+        );
+        expect((watched.inOrca, watched.watched), (false, true));
+        expect(codex.codexThread, isTrue);
+      },
+    );
+
     test('the embedded demo fleet is the protocol fixture', () {
       expect(jsonDecode(agentsDemoStateJson), jsonDecode(_fixture));
     });

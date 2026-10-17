@@ -89,7 +89,7 @@ board                                   deck
 
   | bit | group | fields |
   |---|---|---|
-  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external hat activity.tool subagent_count` |
+  | 1 | `FIELDS_TILE` | `title tool status status_since_ms folder context unseen lost focused external app hat activity.tool subagent_count` |
   | 2 | `FIELDS_CARD` | `ai_title cwd branch model model_label effort activity.detail last_prompt error resumable attached subagents started_at_ms updated_at_ms` |
   | 4 | `FIELDS_PROMPT` | `waiting` |
   | 8 | `FIELDS_NUMBERS` | `tokens cost_usd turns` |
