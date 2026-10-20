@@ -1,18 +1,20 @@
 # t4s3-panel
 
 The deck on a [LilyGo T4-S3](https://www.lilygo.cc/products/t4-s3): a 2.41″ AMOLED touch panel
-(450×600) on USB. Six agents per page in a 2×3 grid, each with its critter, hat and status line, as on
-the deck. Tap one for its card; swipe left and right for more pages.
+(450×600) on USB. Your agents in a 2×3 grid, each with its critter, hat and status line, as on the
+deck. Scroll up and down for more; let go and it settles on a row. Tap one for its card.
 
-| grid | card with a prompt | page 2 | before approval |
+| grid | card with a prompt | scrolling | before approval |
 |---|---|---|---|
-| <img src="images/grid.png" width="200" alt="six agents in a 2x3 grid"> | <img src="images/prompt.png" width="200" alt="an agent's card with a permission prompt and its answers"> | <img src="images/page-2.png" width="200" alt="the second page"> | <img src="images/approve.png" width="200" alt="the approval note"> |
+| <img src="images/grid.png" width="200" alt="six agents in a 2x3 grid"> | <img src="images/prompt.png" width="200" alt="an agent's card with a permission prompt and its answers"> | <img src="images/scrolling.png" width="200" alt="the list mid-scroll, with the position bar on the left"> | <img src="images/approve.png" width="200" alt="the approval note"> |
 
 (Screenshots from the panel itself, with the demo deck.)
 
 - **Grid.** Orange tiles need you; an orange-striped tile finished a turn you haven't looked at; a dim
   critter is idle. The square in the corner is the agent's account colour (or its tool's), the bar at
   the bottom its context, `+2` its working subagents. The header counts who's waiting and running.
+- **Scrolling.** Up and down only (the panel is portrait). While it moves, a bar on the left shows
+  where you are in the list; it fades once the list settles on a row.
 - **Card.** What the agent asks, with a button per answer; what it's doing; context, tokens, cost and
   turns; its last prompt; model, folder, branch and account; **focus terminal** and **interrupt**.
   Swipe right or tap **back** to return.

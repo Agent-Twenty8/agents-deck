@@ -24,7 +24,9 @@
 #define GAP 8
 #define COLS 2
 #define ROWS 3
-#define PER_PAGE (COLS * ROWS)
+#define VISIBLE (COLS * ROWS) // tiles on screen at once
+#define TILES AGENTS_MAX       // tiles in the list, at most
+#define GRID_H (DISPLAY_H - HEADER_H)
 #define TILE_W ((DISPLAY_W - GAP * (COLS + 1)) / COLS)
 #define TILE_H ((DISPLAY_H - HEADER_H - GAP * (ROWS + 1)) / ROWS)
 
@@ -41,12 +43,13 @@ typedef struct {
 #define CELEBRATE_MS 6000
 
 static lv_obj_t *grid_screen, *card_screen, *note_screen;
-static lv_obj_t *head_title, *head_counts, *head_dot, *head_page, *toast;
-static tile_t tiles[PER_PAGE];
+static lv_obj_t *head_title, *head_counts, *head_dot, *toast;
+static lv_obj_t *list, *list_bar; // the scrolling list of tiles; where it is, while scrolling
+static lv_timer_t *bar_hide;
+static tile_t tiles[TILES];
 static lv_obj_t *note_title, *note_body;
 static lv_obj_t *card_body, *card_spr;
 static critter_t card_crit;
-static int page;
 static char open_id[12]; // the agent whose card is open ("" for the grid)
 static uint32_t seen_version = UINT32_MAX;
 static agentsdeck_link_v1_Agent *card_copy; // what the open card shows
@@ -332,7 +335,7 @@ static void animate(lv_timer_t *t)
 {
 	(void)t;
 	if (lv_screen_active() == grid_screen) {
-		for (int i = 0; i < PER_PAGE; i++) {
+		for (int i = 0; i < TILES; i++) {
 			if (tiles[i].show_crit)
 				lv_obj_invalidate(tiles[i].spr);
 			if (!lv_obj_has_flag(tiles[i].stripes, LV_OBJ_FLAG_HIDDEN))
@@ -392,45 +395,80 @@ static void tile_clicked(lv_event_t *e)
 		open_card(t->id);
 }
 
-static void grid_gesture(lv_event_t *e)
+// The bar on the left: how far down the list is, shown only while it scrolls.
+static void place_bar(void)
 {
-	(void)e;
-	lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
-	agents_t *s = agents_lock();
-	int pages = s->count > 0 ? (s->count + PER_PAGE - 1) / PER_PAGE : 1;
-	agents_unlock();
-	lv_indev_wait_release(lv_indev_active()); // a swipe isn't also a tap
-	if (dir == LV_DIR_LEFT && page + 1 < pages)
-		page++;
-	else if (dir == LV_DIR_RIGHT && page > 0)
-		page--;
-	else
-		return;
-	seen_version = UINT32_MAX;
+	int32_t content = lv_obj_get_scroll_top(list) + lv_obj_get_scroll_bottom(list) + GRID_H;
+	int32_t h = content > 0 ? GRID_H * GRID_H / content : GRID_H;
+	if (h < 40)
+		h = 40;
+	int32_t range = lv_obj_get_scroll_top(list) + lv_obj_get_scroll_bottom(list);
+	int32_t y = range > 0 ? (GRID_H - h) * lv_obj_get_scroll_top(list) / range : 0;
+	if (y < 0)
+		y = 0;
+	if (y > GRID_H - h)
+		y = GRID_H - h;
+	lv_obj_set_size(list_bar, 4, h);
+	lv_obj_set_pos(list_bar, 2, HEADER_H + y);
+}
+
+static void hide_bar(lv_timer_t *t)
+{
+	(void)t;
+	lv_obj_add_flag(list_bar, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void list_scrolled(lv_event_t *e)
+{
+	lv_event_code_t c = lv_event_get_code(e);
+	if (lv_obj_get_scroll_top(list) + lv_obj_get_scroll_bottom(list) <= 0)
+		return; // everything fits: nothing to show
+	if (c == LV_EVENT_SCROLL_BEGIN || c == LV_EVENT_SCROLL) {
+		lv_timer_pause(bar_hide);
+		place_bar();
+		lv_obj_remove_flag(list_bar, LV_OBJ_FLAG_HIDDEN);
+	} else if (c == LV_EVENT_SCROLL_END) { // settled on a row: fade out shortly
+		lv_timer_reset(bar_hide);
+		lv_timer_resume(bar_hide);
+	}
 }
 
 static void build_grid(void)
 {
 	grid_screen = screen();
-	lv_obj_add_event_cb(grid_screen, grid_gesture, LV_EVENT_GESTURE, NULL);
 
 	head_title = label(grid_screen, &lv_font_montserrat_28, C_INK);
 	lv_label_set_text(head_title, "agents");
 	lv_obj_align(head_title, LV_ALIGN_TOP_LEFT, 14, 12);
 	head_counts = label(grid_screen, &lv_font_montserrat_20, C_DIM);
 	lv_obj_align(head_counts, LV_ALIGN_TOP_LEFT, 128, 18);
-	head_page = label(grid_screen, &lv_font_montserrat_20, C_DIM);
-	lv_obj_align(head_page, LV_ALIGN_TOP_RIGHT, -40, 18);
 	head_dot = box(grid_screen); // the link: ink online, accent when it needs you, dim offline
 	lv_obj_set_size(head_dot, 12, 12);
 	lv_obj_set_style_bg_opa(head_dot, LV_OPA_COVER, 0);
 	lv_obj_align(head_dot, LV_ALIGN_TOP_RIGHT, -16, 24);
 
-	for (int i = 0; i < PER_PAGE; i++) {
+	// The list: every agent, two per row, scrolling up and down. Let go and
+	// it settles on the nearest row, so the tiles on screen are whole.
+	list = box(grid_screen);
+	lv_obj_set_size(list, DISPLAY_W, GRID_H);
+	lv_obj_set_pos(list, 0, HEADER_H);
+	lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLL_MOMENTUM |
+				      LV_OBJ_FLAG_SCROLL_ELASTIC);
+	lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLL_CHAIN);
+	lv_obj_set_scroll_dir(list, LV_DIR_VER);
+	lv_obj_set_scroll_snap_y(list, LV_SCROLL_SNAP_START);
+	lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF); // ours is on the left
+	lv_obj_set_style_pad_top(list, GAP, 0);
+	lv_obj_set_style_pad_bottom(list, GAP, 0);
+	lv_obj_add_event_cb(list, list_scrolled, LV_EVENT_SCROLL_BEGIN, NULL);
+	lv_obj_add_event_cb(list, list_scrolled, LV_EVENT_SCROLL, NULL);
+	lv_obj_add_event_cb(list, list_scrolled, LV_EVENT_SCROLL_END, NULL);
+
+	for (int i = 0; i < TILES; i++) {
 		tile_t *t = &tiles[i];
-		t->box = box(grid_screen);
+		t->box = box(list);
 		lv_obj_set_size(t->box, TILE_W, TILE_H);
-		lv_obj_set_pos(t->box, GAP + (i % COLS) * (TILE_W + GAP), HEADER_H + GAP + (i / COLS) * (TILE_H + GAP));
+		lv_obj_set_pos(t->box, GAP + (i % COLS) * (TILE_W + GAP), (i / COLS) * (TILE_H + GAP));
 		lv_obj_set_style_radius(t->box, 4, 0);
 		lv_obj_set_style_bg_opa(t->box, LV_OPA_COVER, 0);
 		lv_obj_set_style_border_width(t->box, 2, 0);
@@ -476,6 +514,14 @@ static void build_grid(void)
 		lv_obj_set_style_radius(t->bar, 0, LV_PART_INDICATOR);
 		lv_obj_remove_flag(t->bar, LV_OBJ_FLAG_CLICKABLE);
 	}
+
+	list_bar = box(grid_screen);
+	lv_obj_set_style_bg_color(list_bar, lv_color_hex(C_DIM), 0);
+	lv_obj_set_style_bg_opa(list_bar, LV_OPA_COVER, 0);
+	lv_obj_set_style_radius(list_bar, 2, 0);
+	lv_obj_add_flag(list_bar, LV_OBJ_FLAG_HIDDEN);
+	bar_hide = lv_timer_create(hide_bar, 700, NULL);
+	lv_timer_pause(bar_hide);
 
 	toast = label(grid_screen, &lv_font_montserrat_20, C_BG);
 	lv_obj_set_style_bg_color(toast, lv_color_hex(C_INK), 0);
@@ -557,12 +603,20 @@ static void draw_tile(tile_t *t, const agentsdeck_link_v1_Agent *a)
 
 static void draw_grid(const agents_t *s)
 {
-	int pages = s->count > 0 ? (s->count + PER_PAGE - 1) / PER_PAGE : 1;
-	if (page >= pages)
-		page = pages - 1;
-	for (int i = 0; i < PER_PAGE; i++) {
-		int k = page * PER_PAGE + i;
-		draw_tile(&tiles[i], k < s->count ? s->agents[k] : NULL);
+	// Whole rows, at least a screenful: empty slots fill the rest.
+	int shown = s->count < VISIBLE ? VISIBLE : (s->count + COLS - 1) / COLS * COLS;
+	int last_top = shown / COLS - ROWS; // the last row that can be at the top of a full screen
+	for (int i = 0; i < TILES; i++) {
+		if (i / COLS <= last_top) // snap only where a whole screen of rows follows
+			lv_obj_add_flag(tiles[i].box, LV_OBJ_FLAG_SNAPPABLE);
+		else
+			lv_obj_remove_flag(tiles[i].box, LV_OBJ_FLAG_SNAPPABLE);
+		if (i < shown) {
+			lv_obj_remove_flag(tiles[i].box, LV_OBJ_FLAG_HIDDEN);
+			draw_tile(&tiles[i], i < s->count ? s->agents[i] : NULL);
+		} else {
+			lv_obj_add_flag(tiles[i].box, LV_OBJ_FLAG_HIDDEN);
+		}
 	}
 	int waiting = agents_count_status(s, agentsdeck_link_v1_Status_STATUS_WAITING);
 	int running = agents_count_status(s, agentsdeck_link_v1_Status_STATUS_RUNNING);
@@ -573,12 +627,6 @@ static void draw_grid(const agents_t *s)
 		snprintf(b, sizeof b, "%d running \xE2\x80\xA2 %d in all", running, s->count);
 	lv_label_set_text(head_counts, b);
 	lv_obj_set_style_text_color(head_counts, lv_color_hex(waiting ? C_ACCENT : C_DIM), 0);
-	if (pages > 1) {
-		snprintf(b, sizeof b, "%d/%d", page + 1, pages);
-		lv_label_set_text(head_page, b);
-	} else {
-		lv_label_set_text(head_page, "");
-	}
 	lv_obj_set_style_bg_color(head_dot, lv_color_hex(waiting ? C_ACCENT : C_INK), 0);
 }
 
