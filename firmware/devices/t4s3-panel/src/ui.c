@@ -960,11 +960,17 @@ void ui_update(void)
 		open_id[0] = '\0'; // it left the deck
 	if (a) {
 		bool changed = card_body == NULL || memcmp(card_copy, a, sizeof *a) != 0 || now - last_card > 30000;
-		*card_copy = *a;
-		if (changed)
+		// Rebuilding the card under a finger would stop the scroll: wait
+		// until it's let go and the scroll has settled.
+		bool busy = card_body && (lv_indev_get_state(lv_indev_get_next(NULL)) == LV_INDEV_STATE_PRESSED ||
+					  lv_obj_is_scrolling(card_body));
+		if (changed && busy) {
+			seen_version = UINT32_MAX; // look again next time round
+		} else if (changed) {
+			*card_copy = *a;
 			last_card = now;
-		if (changed)
 			draw_card(card_copy);
+		}
 		draw_toast(lv_obj_get_user_data(card_screen), s);
 		agents_unlock();
 		show(card_screen);
