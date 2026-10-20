@@ -5,6 +5,7 @@
 
 #include "agents.h"
 #include "critter.h"
+#include "debug.h"
 #include "esp_heap_caps.h"
 #include "display.h"
 #include "link.h"
@@ -480,6 +481,9 @@ static void build_grid(void)
 	lv_obj_set_style_bg_color(toast, lv_color_hex(C_INK), 0);
 	lv_obj_set_style_bg_opa(toast, LV_OPA_COVER, 0);
 	lv_obj_set_style_pad_all(toast, 10, 0);
+	lv_obj_set_width(toast, DISPLAY_W - 32);
+	lv_label_set_long_mode(toast, LV_LABEL_LONG_WRAP);
+	lv_obj_set_style_text_align(toast, LV_TEXT_ALIGN_CENTER, 0);
 	lv_obj_align(toast, LV_ALIGN_TOP_MID, 0, 10); // over the header, never over a button
 	lv_obj_add_flag(toast, LV_OBJ_FLAG_HIDDEN);
 }
@@ -666,6 +670,16 @@ static lv_obj_t *para(lv_obj_t *parent, const lv_font_t *font, uint32_t color, c
 	return l;
 }
 
+// A paragraph of at most `lines` lines ("..." past them): its height stays
+// put while the text changes, so the card doesn't jump under a scroll.
+static lv_obj_t *lines_para(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text, int lines)
+{
+	lv_obj_t *l = para(parent, font, color, text);
+	lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+	lv_obj_set_height(l, lv_font_get_line_height(font) * lines);
+	return l;
+}
+
 // One of the four numbers: a small heading over a big value.
 static void number(lv_obj_t *row, const char *heading, const char *value)
 {
@@ -678,8 +692,22 @@ static void number(lv_obj_t *row, const char *heading, const char *value)
 	lv_label_set_text(v, value);
 }
 
+#ifdef PANEL_DEBUG
+static void card_debug_event(lv_event_t *e)
+{
+	lv_event_code_t c = lv_event_get_code(e);
+	if (c == LV_EVENT_PRESSED || c == LV_EVENT_SCROLL_BEGIN || c == LV_EVENT_SCROLL_END || c == LV_EVENT_RELEASED ||
+	    c == LV_EVENT_GESTURE || c == LV_EVENT_DELETE)
+		debug_note("ev%d t=%p cur=%p y=%d", (int)c, (void *)lv_event_get_target(e),
+			   (void *)lv_event_get_current_target(e), (int)lv_obj_get_scroll_y(lv_event_get_current_target(e)));
+}
+#endif
+
 static void draw_card(const agentsdeck_link_v1_Agent *a)
 {
+#ifdef PANEL_DEBUG
+	debug_note("draw_card scr=%p", (void *)card_screen);
+#endif
 	int32_t scroll = card_body ? lv_obj_get_scroll_y(card_body) : 0;
 	if (card_screen == NULL) {
 		card_screen = screen();
@@ -712,7 +740,13 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 	// The body scrolls.
 	card_body = box(card_screen);
 	lv_obj_add_flag(card_body, LV_OBJ_FLAG_SCROLLABLE);
+	// Presses on its text land here (LVGL gives a press to the nearest
+	// clickable object), so a swipe anywhere on the card scrolls it.
+	lv_obj_add_flag(card_body, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_flag(card_body, LV_OBJ_FLAG_GESTURE_BUBBLE);
+#ifdef PANEL_DEBUG
+	lv_obj_add_event_cb(card_body, card_debug_event, LV_EVENT_ALL, NULL);
+#endif
 	lv_obj_set_scroll_dir(card_body, LV_DIR_VER);
 	lv_obj_set_size(card_body, DISPLAY_W, DISPLAY_H - 64);
 	lv_obj_set_pos(card_body, 0, 64);
@@ -739,7 +773,7 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 	lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
 	set_text(title, a->title, false);
 	if (a->ai_title[0] && strcmp(a->ai_title, a->title) != 0)
-		para(card_body, &lv_font_montserrat_20, C_DIM, a->ai_title);
+		lines_para(card_body, &lv_font_montserrat_20, C_DIM, a->ai_title, 1);
 
 	// What it asks, with the answers.
 	if (waiting && a->has_waiting) {
@@ -766,13 +800,13 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 			para(p, &lv_font_montserrat_20, C_DIM, "answer it in the terminal");
 	}
 
-	if (a->status == agentsdeck_link_v1_Status_STATUS_RUNNING) {
-		section(card_body, "doing now");
-		snprintf(b, sizeof b, "%s%s%s", verb(a->has_activity ? a->activity.tool : ""),
-			 a->has_activity && a->activity.detail[0] ? " \xE2\x80\xA2 " : "",
-			 a->has_activity ? a->activity.detail : "");
-		para(card_body, &lv_font_montserrat_24, C_INK, b);
-	}
+	// Always there, one line: the tool while it works (not its argument,
+	// which changes every moment), else its state; the card keeps its shape.
+	section(card_body, "doing now");
+	lines_para(card_body, &lv_font_montserrat_24, a->status == agentsdeck_link_v1_Status_STATUS_RUNNING ? C_INK : C_DIM,
+		   a->status == agentsdeck_link_v1_Status_STATUS_RUNNING ? verb(a->has_activity ? a->activity.tool : "")
+									  : status_word(a->status),
+		   1);
 	if (a->status == agentsdeck_link_v1_Status_STATUS_ERROR && a->error[0]) {
 		section(card_body, "error");
 		para(card_body, &lv_font_montserrat_20, C_ACCENT, a->error);
@@ -815,7 +849,7 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 
 	if (a->last_prompt[0]) {
 		section(card_body, "last prompt");
-		para(card_body, &lv_font_montserrat_20, C_INK, a->last_prompt);
+		lines_para(card_body, &lv_font_montserrat_20, C_INK, a->last_prompt, 3);
 	}
 
 	// Where it runs.
@@ -863,6 +897,9 @@ static void draw_card(const agentsdeck_link_v1_Agent *a)
 	lv_obj_set_style_bg_color(t2, lv_color_hex(C_INK), 0);
 	lv_obj_set_style_bg_opa(t2, LV_OPA_COVER, 0);
 	lv_obj_set_style_pad_all(t2, 10, 0);
+	lv_obj_set_width(t2, DISPLAY_W - 32);
+	lv_label_set_long_mode(t2, LV_LABEL_LONG_WRAP);
+	lv_obj_set_style_text_align(t2, LV_TEXT_ALIGN_CENTER, 0);
 	lv_obj_align(t2, LV_ALIGN_TOP_MID, 0, 10);
 	lv_obj_add_flag(t2, LV_OBJ_FLAG_HIDDEN);
 	lv_obj_set_user_data(card_screen, t2);

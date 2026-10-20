@@ -23,7 +23,7 @@ typedef struct {
 	link_status_t link;
 	char device_name[40]; // from Welcome: what `agentctl devices approve` takes
 	int64_t clock_offset_ms; // deck time - local time, for "3m ago"
-	char message[64];     // a short note for the person (answered, refused …)
+	char message[96];     // a short note for the person (answered, refused …)
 	uint32_t message_until_ms;
 	int count;
 	agentsdeck_link_v1_Agent *agents[AGENTS_MAX]; // sorted by slot

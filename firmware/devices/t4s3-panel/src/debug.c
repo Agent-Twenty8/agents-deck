@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "agents.h"
@@ -24,7 +25,9 @@ void usb_write_unlock(void) { xSemaphoreGive(usb_lock); }
 #ifdef PANEL_DEBUG
 static char line[32];
 static size_t line_len;
-static volatile bool snap_wanted, perf_wanted;
+static volatile bool snap_wanted, perf_wanted, log_wanted;
+static char notes[1024];
+static size_t notes_len;
 static volatile uint32_t frames, perf_since, busy_us, spi_us;
 static volatile int tap_x, tap_y, to_x, to_y;
 static volatile uint32_t tap_from, tap_until;
@@ -40,6 +43,8 @@ void debug_scan(const uint8_t *data, size_t len)
 				snap_wanted = true;
 			else if (strcmp(line, "!perf") == 0)
 				perf_wanted = true;
+			else if (strcmp(line, "!log") == 0)
+				log_wanted = true;
 			else if (sscanf(line, "!drag %d %d %d %d", &x, &y, &x2, &y2) == 4) {
 				tap_x = x, tap_y = y, to_x = x2, to_y = y2;
 				tap_from = now_ms();
@@ -81,11 +86,34 @@ static void put(const void *p, size_t n)
 }
 
 void debug_frame(void) { frames++; }
+
+void debug_note(const char *fmt, ...)
+{
+	char b[96];
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsnprintf(b, sizeof b, fmt, ap);
+	va_end(ap);
+	if (n < 0)
+		return;
+	if (notes_len + n + 2 > sizeof notes)
+		notes_len = 0;
+	notes_len += snprintf(notes + notes_len, sizeof notes - notes_len, "%u:%s|", (unsigned)(now_ms() % 100000), b);
+}
 void debug_busy(uint32_t us) { busy_us += us; }
 void debug_spi(uint32_t us) { spi_us += us; }
 
 void debug_poll(void)
 {
+	if (log_wanted) {
+		log_wanted = false;
+		usb_write_lock();
+		put("\0LOG ", 5);
+		put(notes, notes_len);
+		put("\n", 1);
+		usb_write_unlock();
+		notes_len = 0;
+	}
 	if (perf_wanted) { // frames drawn since the last "!perf"
 		perf_wanted = false;
 		char b[64];

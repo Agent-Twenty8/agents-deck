@@ -76,8 +76,9 @@ The daemon lets go of the port while a flasher has it open, so you can reflash w
 ## Development
 
 `pio run -e t4s3-debug` builds a version whose USB port also takes `!snap` (dump the screen),
-`!tap x y` and `!drag x1 y1 x2 y2` (see `src/debug.h`), for taking screenshots and testing screens
-without touching the panel. Don't leave it on a panel in daily use.
+`!tap x y`, `!drag x1 y1 x2 y2`, `!perf` (frames per second, drawing vs sending) and `!log` (touch and
+scroll events), see `src/debug.h`: for screenshots, and for testing screens and touch without touching
+the panel. Don't leave it on a panel in daily use.
 
 When the deck's hats change, run `node tools/gen_hats.mjs` and commit `src/hats.c`.
 

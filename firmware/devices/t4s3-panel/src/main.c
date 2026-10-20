@@ -79,6 +79,21 @@ static void read_touch(lv_indev_t *indev, lv_indev_data_t *data)
 	}
 }
 
+#ifdef PANEL_DEBUG
+static void indev_note(lv_event_t *e)
+{
+	lv_event_code_t c = lv_event_get_code(e);
+	if (c != LV_EVENT_PRESSED && c != LV_EVENT_RELEASED && c != LV_EVENT_SCROLL_BEGIN && c != LV_EVENT_GESTURE &&
+	    c != LV_EVENT_CLICKED)
+		return;
+	lv_indev_t *in = lv_event_get_target(e);
+	lv_point_t p;
+	lv_indev_get_point(in, &p);
+	debug_note("indev ev%d obj=%p scr=%p at %d,%d", (int)c, (void *)lv_indev_get_active_obj(), (void *)lv_screen_active(),
+		   (int)p.x, (int)p.y);
+}
+#endif
+
 static void ui_task(void *arg)
 {
 	(void)arg;
@@ -132,6 +147,9 @@ void app_main(void)
 	lv_indev_t *indev = lv_indev_create();
 	lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
 	lv_indev_set_read_cb(indev, read_touch);
+#ifdef PANEL_DEBUG
+	lv_indev_add_event_cb(indev, indev_note, LV_EVENT_ALL, NULL);
+#endif
 
 	ui_init();
 	link_start();
