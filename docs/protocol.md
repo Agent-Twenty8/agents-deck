@@ -32,6 +32,8 @@ mutating request whose `Origin` is not that host.
 | POST | `/v1/restore` | – | `200` `{"results": [{"id", "title", "action": "resumed\|relaunched\|removed\|failed", "error"}]}` — brings back every agent with `lost: true`: Claude agents on their own conversation, other tools fresh in their folder, each in its old slot |
 | POST | `/v1/order` | `{"ids": ["k3f9a2", "h0m3l4", …]}` | `204` — compacts: puts those agents in slots 0..n-1 in that order (others keep their order after them) |
 | POST | `/v1/agents/{id}/resume` | – | `204` — restarts an exited Claude agent (`resumable: true`) on its previous conversation, same slot |
+| GET | `/v1/accounts` | – | `200` `{"accounts": [{"name": "work", "color": "yellow", "default": true}]}` — the Claude accounts agents can run in (`config.json` `"accounts"`); empty while only one is set up |
+| POST | `/v1/agents/{id}/handoff` | `{"account": "personal"}` | `200` `{"id": "k3f9a2"}` — continues a Claude session in another account, for when one runs out of usage: its transcript is copied into that account's folder and Claude resumes it there. An agent the deck started stops and comes back in the same slot (same `id`); a watched session keeps running in its own terminal and the copy starts as a new agent (its `id`) |
 
 Errors are `{"error": "message"}` with a 4xx/5xx status.
 
@@ -94,6 +96,8 @@ The full state is small (≤ a few KB per agent), so there are no deltas.
                                   // propeller, top hat, cowboy, bandana · color: teal, blue, yellow, green, purple,
                                   // pink, sky, ink · auto: picked by FNV-1a of the folder (shape = h mod 13,
                                   // colour = (h >> 8) mod 8), false when chosen by hand
+  "account": { "name": "work", "color": "yellow" }, // omitted while only one Claude account is set up:
+                                  // the account (Claude config folder) the session runs in; color is a hat colour
   "subagents": [                  // omitted when none: subagents still working, oldest first
     { "id": "a1f3c9", "title": "map the payment retry paths", "type": "Explore", "tool": "Grep" }
   ],
@@ -142,9 +146,9 @@ belong to an active device in `devices.json`; a revoked device fails the handsha
 
 | scope | may |
 |---|---|
-| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats` |
+| `view` | `GET /v1/state`, `/v1/events`, `/v1/hats`, `/v1/accounts` |
 | `act` | also answer, focus, interrupt, move, order, hats |
-| `admin` | also dismiss, resume, restore, `GET /v1/live`, add a live session |
+| `admin` | also dismiss, resume, hand over to another account, restore, `GET /v1/live`, add a live session |
 
 A request beyond the device's scope gets `403` with the command that would raise it.
 

@@ -266,7 +266,7 @@ func (d *Daemon) discover(skip map[string]bool) []claude.Live {
 	cached, ok := d.live.reported, d.live.reportedOK
 	d.live.mu.Unlock()
 	if !fresh && bin != "-" {
-		cached, ok = claude.ActiveSessions(bin, skip)
+		cached, ok = activeSessions(bin, skip)
 		d.live.mu.Lock()
 		d.live.reported, d.live.reportedOK, d.live.reportedAt = cached, ok, time.Now()
 		d.live.mu.Unlock()

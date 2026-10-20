@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/brushknight/agents-deck/backend/internal/accounts"
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/header"
 	"github.com/brushknight/agents-deck/backend/internal/model"
@@ -73,8 +74,13 @@ func (d *Daemon) Run() {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	n := 0
+	accKey := accountsKey()
 	for range tick.C {
 		n++
+		if k := accountsKey(); k != accKey { // accounts set up or changed: redraw the dots
+			accKey = k
+			d.Store.Touch()
+		}
 		live := tmux.Sessions()
 		// The focused agent: the session of the most recently active client whose
 		// terminal reports focus (tmux focus-events; no AppleScript needed).
@@ -317,6 +323,15 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 	switch tool {
 	case "claude":
 		e.SessionID = store.NewUUID()
+		acc := accounts.Default()
+		if o.Account != "" {
+			a, ok := accounts.Find(o.Account)
+			if !ok {
+				return "", fmt.Errorf("no account named %q", o.Account)
+			}
+			acc = a
+		}
+		e.Account = acc.Name
 		inner = nil // built by claudeArgv below
 	case "codex", "gemini", "opencode":
 		inner = []string{tool}
@@ -345,7 +360,7 @@ func (d *Daemon) Create(o server.CreateOpts) (string, error) {
 	// A login shell gives the agent the user's normal PATH and environment.
 	argv := []string{"/bin/zsh", "-lc", "exec " + shellJoin(inner)}
 	if tool == "claude" {
-		argv = d.claudeArgv(explicitTitle(*e), []string{"--session-id", e.SessionID})
+		argv = d.claudeArgv(explicitTitle(*e), accountOf(*e), []string{"--session-id", e.SessionID})
 	}
 	env := agentEnv(id)
 	d.Store.Add(e)

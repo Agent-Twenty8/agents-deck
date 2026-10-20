@@ -51,11 +51,13 @@ From source: `cd backend && go build -o ~/.local/bin/agentctl ./cmd/agentctl && 
 ## Commands
 
 ```text
-agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-d]   start an agent and attach (-d: stay detached)
+agentctl new [dir] [-t title] [-c claude|codex|gemini|shell] [-a account] [-d]   start an agent and attach (-d: stay detached)
 agentctl attach <id|title>          show an agent in this terminal (ctrl-q detaches)
 agentctl reopen                     iTerm tabs for every agent no terminal shows (after iTerm quits or crashes)
 agentctl hats                       the hats agents wear (one per working folder)
 agentctl set hat <agent|folder> <shape> [colour] | auto
+agentctl accounts                   your Claude accounts (account add <name> <folder> <colour> | default | rm)
+agentctl handoff <id|title> <account>  out of usage? continue the conversation in another account
 agentctl live                       Claude sessions started by hand in other terminals
 agentctl add <session>              put one of them on the deck (watched; or tap a free cell)
 agentctl restore                    bring back agents lost with the tmux server (crash, reboot), each in its old spot
