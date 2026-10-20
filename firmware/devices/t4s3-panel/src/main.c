@@ -1,6 +1,8 @@
 // t4s3-panel: the agents deck on a LilyGo T4-S3 (2.41" AMOLED, touch), over
 // Deck Link on its USB port. Two FreeRTOS tasks: Deck Link (link.c) and the
 // UI (LVGL, here and in ui.c); they share the agents state (agents.c).
+#include <stdlib.h>
+
 #include "agents.h"
 #include "debug.h"
 #include "display.h"
@@ -13,7 +15,7 @@
 #include "touch.h"
 #include "ui.h"
 
-#define BUF_LINES 60 // per draw buffer: 450 x 60 pixels, twice, in internal RAM
+#define BUF_LINES 100 // per draw buffer at most: 450 x 100 pixels, twice, in internal RAM
 #define BRIGHTNESS 200
 
 static const char *TAG = "panel";
@@ -21,11 +23,32 @@ static bool touch_ok;
 
 static uint32_t tick(void) { return now_ms(); }
 
+#ifdef PANEL_DEBUG
+#include "esp_timer.h"
+static int64_t sent_at;
+#endif
+
+static void IRAM_ATTR flushed(void *disp)
+{
+#ifdef PANEL_DEBUG
+	debug_spi((uint32_t)(esp_timer_get_time() - sent_at));
+#endif
+	lv_display_flush_ready(disp);
+}
+
+// Sends a rendered strip by DMA; LVGL renders the next one into the other
+// buffer meanwhile.
 static void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
 {
 	lv_draw_sw_rgb565_swap(px, lv_area_get_size(area)); // the panel wants big-endian
-	display_draw(area->x1, area->y1, area->x2, area->y2, (const uint16_t *)px);
-	lv_display_flush_ready(disp);
+#ifdef PANEL_DEBUG
+	if (lv_display_flush_is_last(disp))
+		debug_frame();
+#endif
+#ifdef PANEL_DEBUG
+	sent_at = esp_timer_get_time();
+#endif
+	display_draw(area->x1, area->y1, area->x2, area->y2, (const uint16_t *)px, flushed, disp);
 }
 
 // The panel takes windows that start on an even pixel and are an even
@@ -61,16 +84,26 @@ static void ui_task(void *arg)
 	(void)arg;
 	bool lit = false;
 	for (;;) {
+		lv_lock(); // LVGL's draw threads run alongside
 		ui_update();
+		lv_unlock();
+#ifdef PANEL_DEBUG
+		int64_t t0 = esp_timer_get_time();
+#endif
 		uint32_t wait = lv_timer_handler();
+#ifdef PANEL_DEBUG
+		debug_busy((uint32_t)(esp_timer_get_time() - t0));
+#endif
 #ifdef PANEL_DEBUG
 		debug_poll();
 #endif
 		if (!lit) { // light the panel once the first frame is on it
+			lv_lock(); // the panel's bus is idle between frames
 			display_brightness(BRIGHTNESS);
+			lv_unlock();
 			lit = true;
 		}
-		vTaskDelay(pdMS_TO_TICKS(wait < 5 ? 5 : wait > 30 ? 30 : wait));
+		vTaskDelay(pdMS_TO_TICKS(wait < 2 ? 2 : wait > 30 ? 30 : wait));
 	}
 }
 
@@ -83,9 +116,16 @@ void app_main(void)
 	lv_init();
 	lv_tick_set_cb(tick);
 	lv_display_t *disp = lv_display_create(DISPLAY_W, DISPLAY_H);
-	size_t size = DISPLAY_W * BUF_LINES * 2;
-	void *b1 = heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-	void *b2 = heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+	// Two draw buffers in DMA-capable internal RAM, as big as fit.
+	void *b1 = NULL, *b2 = NULL;
+	size_t size = 0;
+	for (int lines = BUF_LINES; lines >= 20 && !b2; lines -= 20) {
+		free(b1);
+		size = DISPLAY_W * lines * 2;
+		b1 = heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+		b2 = b1 ? heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) : NULL;
+	}
+	ESP_LOGI(TAG, "draw buffers: 2 x %u lines", (unsigned)(size / DISPLAY_W / 2));
 	lv_display_set_buffers(disp, b1, b2, size, LV_DISPLAY_RENDER_MODE_PARTIAL);
 	lv_display_set_flush_cb(disp, flush);
 	lv_display_add_event_cb(disp, round_area, LV_EVENT_INVALIDATE_AREA, NULL);

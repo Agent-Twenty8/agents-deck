@@ -14,6 +14,11 @@ void debug_scan(const uint8_t *data, size_t len);
 // The UI task: a pending touch, and a pending screen dump.
 bool debug_touch(int *x, int *y);
 void debug_poll(void);
+// Counts a whole frame drawn; "!perf" answers "\0PERF <frames> <ms>\n".
+void debug_frame(void);
+// Time in lv_timer_handler, and the display busy sending, in microseconds.
+void debug_busy(uint32_t us);
+void debug_spi(uint32_t us);
 #endif
 
 // Serializes writes to the USB port (Deck Link frames and dumps).

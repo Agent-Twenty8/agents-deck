@@ -23,13 +23,39 @@
 #define SPI_HZ (36 * 1000 * 1000)
 #define COL_OFFSET 16 // the panel's columns start at 16 in its RAM
 #define CHUNK 32768   // bytes per SPI transaction
+#define MAX_CHUNKS 4  // per write: 450 x 100 pixels
 
 static const char *TAG = "display";
 static spi_device_handle_t spi;
+static spi_transaction_ext_t chunks[MAX_CHUNKS];
+static int queued; // chunks sent but not collected
+static void (*done_fn)(void *);
+static void *done_arg;
+
+// After each chunk (in the SPI interrupt): the last one ends the write.
+static void IRAM_ATTR chunk_sent(spi_transaction_t *t)
+{
+	if ((intptr_t)t->user == 1) {
+		gpio_set_level(PIN_CS, 1);
+		if (done_fn)
+			done_fn(done_arg);
+	}
+}
+
+// Collects the chunks of the last write, so the queue is free again.
+static void collect(void)
+{
+	spi_transaction_t *t;
+	while (queued > 0 && spi_device_get_trans_result(spi, &t, portMAX_DELAY) == ESP_OK)
+		queued--;
+}
 
 // One register write: command 0x02, register in the address phase.
+static void collect(void);
+
 static void reg(uint8_t r, const uint8_t *data, size_t len)
 {
+	collect();
 	spi_transaction_t t = {
 		.flags = SPI_TRANS_MULTILINE_CMD | SPI_TRANS_MULTILINE_ADDR,
 		.cmd = 0x02,
@@ -72,9 +98,13 @@ void display_init(void)
 		.clock_speed_hz = SPI_HZ,
 		.spics_io_num = -1, // CS by hand: a frame is several transactions
 		.flags = SPI_DEVICE_HALFDUPLEX,
-		.queue_size = 1,
+		.queue_size = MAX_CHUNKS,
+		.post_cb = chunk_sent,
 	};
 	ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &dev, &spi));
+	int khz = 0;
+	spi_device_get_actual_freq(spi, &khz);
+	ESP_LOGI(TAG, "QSPI at %d kHz", khz);
 
 	gpio_set_level(PIN_RST, 1);
 	vTaskDelay(pdMS_TO_TICKS(20));
@@ -104,8 +134,9 @@ void display_init(void)
 
 void display_brightness(uint8_t level) { reg1(0x51, level); }
 
-void display_draw(int x1, int y1, int x2, int y2, const uint16_t *pixels)
+void display_draw(int x1, int y1, int x2, int y2, const uint16_t *pixels, void (*done)(void *), void *arg)
 {
+	collect();
 	uint16_t xs = x1 + COL_OFFSET, xe = x2 + COL_OFFSET;
 	uint8_t caset[4] = {xs >> 8, xs & 0xFF, xe >> 8, xe & 0xFF};
 	uint8_t raset[4] = {y1 >> 8, y1 & 0xFF, y2 >> 8, y2 & 0xFF};
@@ -114,24 +145,26 @@ void display_draw(int x1, int y1, int x2, int y2, const uint16_t *pixels)
 
 	size_t left = (size_t)(x2 - x1 + 1) * (y2 - y1 + 1) * 2;
 	const uint8_t *p = (const uint8_t *)pixels;
-	bool first = true;
+	done_fn = done;
+	done_arg = arg;
 	gpio_set_level(PIN_CS, 0);
-	while (left > 0) {
+	for (int i = 0; left > 0 && i < MAX_CHUNKS; i++) {
 		size_t n = left > CHUNK ? CHUNK : left;
-		spi_transaction_ext_t t = {0};
-		t.base.flags = SPI_TRANS_MODE_QIO;
-		if (first) {
-			t.base.cmd = 0x32;
-			t.base.addr = 0x002C00; // RAMWR
-			first = false;
+		spi_transaction_ext_t *t = &chunks[i];
+		memset(t, 0, sizeof *t);
+		t->base.flags = SPI_TRANS_MODE_QIO;
+		if (i == 0) {
+			t->base.cmd = 0x32;
+			t->base.addr = 0x002C00; // RAMWR
 		} else { // the rest of the same write: data only
-			t.base.flags |= SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
+			t->base.flags |= SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
 		}
-		t.base.tx_buffer = p;
-		t.base.length = n * 8;
-		ESP_ERROR_CHECK(spi_device_polling_transmit(spi, &t.base));
+		t->base.tx_buffer = p;
+		t->base.length = n * 8;
 		p += n;
 		left -= n;
+		t->base.user = (void *)(intptr_t)(left == 0);
+		ESP_ERROR_CHECK(spi_device_queue_trans(spi, &t->base, portMAX_DELAY));
+		queued++;
 	}
-	gpio_set_level(PIN_CS, 1);
 }

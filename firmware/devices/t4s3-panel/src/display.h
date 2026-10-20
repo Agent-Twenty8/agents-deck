@@ -12,6 +12,8 @@ void display_init(void);
 // Sets the panel's brightness (0-255).
 void display_brightness(uint8_t level);
 
-// Writes RGB565 pixels (big-endian, as the panel reads them) to the rectangle
-// x1..x2, y1..y2 (inclusive). Blocks until sent.
-void display_draw(int x1, int y1, int x2, int y2, const uint16_t *pixels);
+// Starts writing RGB565 pixels (big-endian, as the panel reads them) to the
+// rectangle x1..x2, y1..y2 (inclusive) by DMA and returns; done(arg) runs
+// (from an interrupt) once they're all sent. The pixels must stay put until
+// then, and one write at a time.
+void display_draw(int x1, int y1, int x2, int y2, const uint16_t *pixels, void (*done)(void *), void *arg);

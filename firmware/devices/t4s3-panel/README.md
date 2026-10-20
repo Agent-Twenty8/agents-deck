@@ -59,8 +59,8 @@ pio run -d firmware/devices/t4s3-panel -t upload --upload-port /dev/cu.usbmodem<
 ```
 
 If the upload can't connect (a board that's crashing, or one fresh from LilyGo), hold **BOOT**, press
-**RST**, let go of BOOT, and upload again. Uploads use the ROM loader (`--no-stub`): with this
-firmware running, esptool's stub can't read the flash over the S3's USB.
+**RST**, let go of BOOT, and upload again. The project pins esptool 4.8: the older one PlatformIO
+brings loses the board halfway through an upload over the S3's own USB.
 
 Then hand the port to the deck:
 

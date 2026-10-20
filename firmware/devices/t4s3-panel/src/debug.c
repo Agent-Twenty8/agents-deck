@@ -24,7 +24,8 @@ void usb_write_unlock(void) { xSemaphoreGive(usb_lock); }
 #ifdef PANEL_DEBUG
 static char line[32];
 static size_t line_len;
-static volatile bool snap_wanted;
+static volatile bool snap_wanted, perf_wanted;
+static volatile uint32_t frames, perf_since, busy_us, spi_us;
 static volatile int tap_x, tap_y, to_x, to_y;
 static volatile uint32_t tap_from, tap_until;
 
@@ -37,6 +38,8 @@ void debug_scan(const uint8_t *data, size_t len)
 			int x, y, x2, y2;
 			if (strcmp(line, "!snap") == 0)
 				snap_wanted = true;
+			else if (strcmp(line, "!perf") == 0)
+				perf_wanted = true;
 			else if (sscanf(line, "!drag %d %d %d %d", &x, &y, &x2, &y2) == 4) {
 				tap_x = x, tap_y = y, to_x = x2, to_y = y2;
 				tap_from = now_ms();
@@ -77,8 +80,23 @@ static void put(const void *p, size_t n)
 	}
 }
 
+void debug_frame(void) { frames++; }
+void debug_busy(uint32_t us) { busy_us += us; }
+void debug_spi(uint32_t us) { spi_us += us; }
+
 void debug_poll(void)
 {
+	if (perf_wanted) { // frames drawn since the last "!perf"
+		perf_wanted = false;
+		char b[64];
+		uint32_t now = now_ms();
+		int n = snprintf(b, sizeof b, "%cPERF %u %u %u %u\n", 0, (unsigned)frames, (unsigned)(now - perf_since),
+				 (unsigned)(busy_us / 1000), (unsigned)(spi_us / 1000));
+		frames = 0, perf_since = now, busy_us = 0, spi_us = 0;
+		usb_write_lock();
+		put(b, n);
+		usb_write_unlock();
+	}
 	if (!snap_wanted)
 		return;
 	snap_wanted = false;

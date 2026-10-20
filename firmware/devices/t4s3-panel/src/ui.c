@@ -524,7 +524,7 @@ static void draw_tile(tile_t *t, const agentsdeck_link_v1_Agent *a)
 	set_text(t->title, a->title, true);
 	lv_obj_set_style_text_color(t->title, lv_color_hex(ink), 0);
 
-	char m[96];
+	char m[160];
 	meta(m, sizeof m, a);
 	set_text(t->meta, m, true);
 	uint32_t mc = waiting ? C_BG : (hungry(a) || a->status == agentsdeck_link_v1_Status_STATUS_ERROR) ? C_ACCENT : C_DIM;
