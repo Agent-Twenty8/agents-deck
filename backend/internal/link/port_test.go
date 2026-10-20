@@ -32,3 +32,19 @@ func TestOpenPortClosesOnExec(t *testing.T) {
 		t.Error("the port is inherited by child processes (no FD_CLOEXEC)")
 	}
 }
+
+// Holders of the port as lsof -F pcR lists them: the daemon (pid 100) and,
+// for a moment between fork and exec, its children don't count.
+func TestOtherUser(t *testing.T) {
+	cases := []struct{ lsof, want string }{
+		{"p100\nR1\ncagentctl\nf5\n", ""},
+		{"p100\nR1\ncagentctl\nf5\np230\nR100\ncagentctl\nf5\n", ""},
+		{"p100\nR1\ncagentctl\nf5\np300\nR77\ncscreen\nf3\n", "screen"},
+		{"p300\nR1\ncesptool.py\nf3\n", "esptool.py"},
+	}
+	for _, c := range cases {
+		if got := otherUser(c.lsof, 100); got != c.want {
+			t.Errorf("%q: %q, want %q", c.lsof, got, c.want)
+		}
+	}
+}
