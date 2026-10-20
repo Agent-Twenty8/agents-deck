@@ -21,6 +21,7 @@ type Entry struct {
 	TmuxName      string      `json:"tmuxName"`
 	Sim           bool        `json:"sim,omitempty"`      // simulated agent (agentctl sim): never resumable, no history
 	TitleSet      bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
+	Account       string      `json:"account,omitempty"`  // the Claude account the deck started it in ("" = see its transcript)
 	CustomTitle   string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
 	External      bool        `json:"-"`                  // mirrored from another app (Codex); never persisted
 	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
@@ -118,6 +119,9 @@ type Store struct {
 
 	// Hat gives each agent its hat by working folder (nil: no hats).
 	Hat func(cwd string) *model.Hat
+	// Account gives each agent its Claude account, from the account it was
+	// started in or its transcript's folder (nil: accounts aren't shown).
+	Account func(name, transcript string) *model.Account
 }
 
 func New(path, name, version string) *Store {
@@ -375,14 +379,20 @@ func (s *Store) FindBySession(sid string) string {
 func (s *Store) Snapshot() model.State {
 	s.mu.Lock()
 	agents := make([]model.Agent, 0, len(s.entries))
+	type where struct{ account, transcript string }
+	places := make([]where, 0, len(s.entries))
 	for _, e := range s.entries {
 		agents = append(agents, e.A)
+		places = append(places, where{e.Account, e.Transcript})
 	}
-	hat := s.Hat
+	hat, account := s.Hat, s.Account
 	s.mu.Unlock()
-	if hat != nil {
-		for i := range agents {
+	for i := range agents {
+		if hat != nil {
 			agents[i].Hat = hat(agents[i].Cwd)
+		}
+		if account != nil && agents[i].Tool == "claude" {
+			agents[i].Account = account(places[i].account, places[i].transcript)
 		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Slot < agents[j].Slot })

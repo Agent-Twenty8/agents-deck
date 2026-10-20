@@ -280,6 +280,16 @@ func Capture(name string, back int) string {
 	return out
 }
 
+// PanePID is the process running in the session's pane (0 when unknown).
+func PanePID(name string) int {
+	out, err := run("list-panes", "-t", name, "-F", "#{pane_pid}")
+	if err != nil {
+		return 0
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]))
+	return pid
+}
+
 func Kill(name string) error { _, err := run("kill-session", "-t", name); return err }
 
 // AttachArgv is the command a terminal runs to show the session.

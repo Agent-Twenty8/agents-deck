@@ -209,6 +209,45 @@ AgentHat autoHatFor(String folder) {
   );
 }
 
+/// A Claude Code account (its own config folder, e.g. personal and work).
+/// Agents carry theirs only while more than one is set up.
+class AgentAccount {
+  const AgentAccount({
+    required this.name,
+    required this.color,
+    this.isDefault = false,
+  });
+
+  final String name;
+
+  /// One of [hatColors].
+  final String color;
+
+  /// New agents start in it (`GET /v1/accounts` only).
+  final bool isDefault;
+
+  static AgentAccount? fromJson(Object? j) {
+    if (j is! Map<String, dynamic>) return null;
+    final name = _str(j['name']);
+    if (name.isEmpty) return null;
+    return AgentAccount(
+      name: name,
+      color: _str(j['color']),
+      isDefault: j['default'] == true,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is AgentAccount &&
+      other.name == name &&
+      other.color == color &&
+      other.isDefault == isDefault;
+
+  @override
+  int get hashCode => Object.hash(name, color, isDefault);
+}
+
 /// Every hat colour (never the status orange).
 const hatColors = [
   'teal',
@@ -256,6 +295,7 @@ class Agent {
     this.app = '',
     this.subagents = const [],
     this.hat,
+    this.account,
     this.startedAt,
     this.updatedAt,
   });
@@ -315,6 +355,9 @@ class Agent {
   /// The pixel hat for its working folder; null = none.
   final AgentHat? hat;
 
+  /// The Claude account it runs in; null while only one is set up.
+  final AgentAccount? account;
+
   /// The app an external agent runs in ("orca"), or "" for agentctl's own
   /// and plain mirrors.
   final String app;
@@ -329,6 +372,11 @@ class Agent {
   /// A Claude session started by hand in another terminal and added to the
   /// deck: watched (status, context, cost), answered in its own terminal.
   bool get watched => external && tool == 'claude' && app.isEmpty;
+
+  /// A Claude agent whose conversation can continue in another account
+  /// (`POST /v1/agents/{id}/handoff`): the deck's own, or one watched in a
+  /// terminal or in Orca (a copy starts on the deck).
+  bool get canHandoff => account != null && tool == 'claude' && !codexThread;
 
   /// Idle with an unreviewed result.
   bool get hungry => unseen && status == AgentStatus.idle;
@@ -376,6 +424,7 @@ class Agent {
       external: j['external'] == true,
       app: j['app'] is String ? j['app'] as String : '',
       hat: AgentHat.fromJson(j['hat']),
+      account: AgentAccount.fromJson(j['account']),
       subagents: [
         if (j['subagents'] case final List l)
           for (final x in l)

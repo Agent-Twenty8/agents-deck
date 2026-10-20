@@ -46,6 +46,9 @@ func toPB(a model.Agent, fields uint32) *linkpb.Agent {
 		if a.Hat != nil {
 			p.Hat = &linkpb.Hat{Shape: a.Hat.Shape, Color: a.Hat.Color, Automatic: a.Hat.Auto}
 		}
+		if a.Account != nil {
+			p.Account = &linkpb.Account{Name: a.Account.Name, Color: a.Account.Color}
+		}
 		if a.Activity != nil {
 			p.Activity = &linkpb.Activity{Tool: a.Activity.Tool}
 		}
