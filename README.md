@@ -23,7 +23,17 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | <img src="docs/images/panel-board-v2.png" alt="desk panel"> | <img src="docs/images/cli.png" alt="agentctl in the terminal"> |
 | **Desk panel.** A 4″ touch panel on Wi-Fi, as a companion. | **Terminal.** `agentctl` starts, lists, resumes and restores agents. |
 
-**Agents in [Orca](https://github.com/stablyai/orca)** appear on the deck too, answerable and focusable like the rest.
+**Bring your own harness.** agents deck is a status board, not a harness. It comes with a minimal one (`agentctl new` runs each agent in a tmux session), and if you already run your agents in a harness, the deck connects to it instead: their agents show up next to the rest, answerable and focusable.
+
+| Runs your agents | What the deck shows |
+|---|---|
+| agentctl (built in) | agents it starts, each in a tmux session with a status header |
+| [Orca](https://github.com/stablyai/orca) | agents in Orca's worktrees, while Orca is open |
+| [herdr](https://herdr.dev) | agents in herdr's panes, in every herdr session that's running |
+| Claude Code on its own | sessions you started by hand in any terminal, once you add them |
+| Codex app | its recent threads |
+
+Details for each are in [docs/features.md](docs/features.md#agents-in-other-harnesses).
 
 **Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from.
 

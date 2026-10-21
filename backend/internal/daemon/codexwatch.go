@@ -71,7 +71,7 @@ func (d *Daemon) syncCodex(threads []codex.Thread) {
 	}
 	// Drop threads that aged out, were archived or hidden.
 	for _, e := range d.Store.Entries() {
-		if e.External && e.A.Tool == "codex" && e.OrcaPane == "" { // Orca's agents are Orca's
+		if e.External && e.A.Tool == "codex" && !inApp(e) { // Orca's and herdr's agents are theirs
 			if _, ok := want[e.A.ID]; !ok {
 				d.Store.Remove(e.A.ID)
 			}

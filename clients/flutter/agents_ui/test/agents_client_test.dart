@@ -249,10 +249,10 @@ void main() {
         });
         final [orca, watched, codex] = s.agents;
         expect(
-          (orca.inOrca, orca.watched, orca.codexThread),
+          (orca.inApp, orca.watched, orca.codexThread),
           (true, false, false),
         );
-        expect((watched.inOrca, watched.watched), (false, true));
+        expect((watched.inApp, watched.watched), (false, true));
         expect(codex.codexThread, isTrue);
       },
     );

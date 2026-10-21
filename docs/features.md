@@ -54,7 +54,13 @@ Threads from the Codex app (and Codex CLI) active in the last 6 hours appear on 
 
 `config.json`: `"codex": false` turns it off; `"codexWindowHours": 12` widens the window.
 
-## Agents in Orca
+## Agents in other harnesses
+
+The deck doesn't need to start your agents. If you run them in a harness, it reads that harness and
+shows its agents alongside agentctl's own. Each one is found by itself while the harness runs; nothing
+to set up.
+
+### Orca
 
 Agents you run in [Orca](https://github.com/stablyai/orca) (Claude Code, Codex and others, each in its
 own worktree) show up on the deck by themselves while Orca is open. Their status comes from Orca, which
@@ -65,6 +71,22 @@ From the deck, **open in orca** switches Orca to the agent's terminal and brings
 and **interrupt** are typed into that terminal; **hide** takes the agent off the deck until it's active
 again. The daemon talks to Orca through its `orca` CLI only (`worktree ps`, `terminal list`, `read`,
 `send`, `switch`). `config.json`: `"orca": false` turns it off.
+
+### herdr
+
+Agents you run in [herdr](https://herdr.dev) (Claude Code, Codex and the other agents it knows) show up
+on the deck while herdr runs, from every herdr session: the default one and named ones
+(`herdr --session work`). Their status is herdr's own: working, blocked (waiting for you) and done
+(hungry until you look at it, in herdr or from the deck). A Claude agent's tokens, context, cost and
+account come from its transcript, matched through the agent's process, so herdr's Claude integration is
+optional.
+
+When an agent is blocked, the deck reads the dialog off its screen: the question and its options, which
+you answer from the deck. **open in herdr** switches herdr to the agent's pane and brings up the
+terminal tab herdr is open in; **interrupt** presses Esc in the pane; **hide** takes the agent off the
+deck until its state changes. The daemon talks to herdr through its socket API only
+(`session.snapshot`, `pane.read`, `pane.send_text`, `pane.send_keys`, `pane.process_info`,
+`agent.focus`). `config.json`: `"herdr": false` turns it off.
 
 ## Claude sessions started elsewhere
 
