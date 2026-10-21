@@ -57,8 +57,9 @@ Threads from the Codex app (and Codex CLI) active in the last 6 hours appear on 
 ## Agents in other harnesses
 
 The deck doesn't need to start your agents. If you run them in a harness, it reads that harness and
-shows its agents alongside agentctl's own. Each one is found by itself while the harness runs; nothing
-to set up.
+shows its agents alongside agentctl's own. Each one is found by itself while the harness runs; only cmux
+needs a setting changed before you can answer from the deck. To add another harness, see
+[harnesses.md](harnesses.md).
 
 ### Orca
 
@@ -87,6 +88,28 @@ terminal tab herdr is open in; **interrupt** presses Esc in the pane; **hide** t
 deck until its state changes. The daemon talks to herdr through its socket API only
 (`session.snapshot`, `pane.read`, `pane.send_text`, `pane.send_keys`, `pane.process_info`,
 `agent.focus`). `config.json`: `"herdr": false` turns it off.
+
+### cmux
+
+Claude Code sessions you run in [cmux](https://cmux.com)'s terminals show up on the deck by themselves
+while cmux is open. Their status comes from cmux's Claude hooks, which it installs in every Claude it
+starts: working, waiting for you, and hungry when a turn finishes. The deck reads them from the file
+cmux keeps (`~/.cmuxterm/claude-hook-sessions.json`), so showing them needs no setup. Tokens, context,
+cost and account come from the session's transcript.
+
+Answering, **interrupt** and **open in cmux** go through cmux's control socket, which by default only
+takes programs started inside cmux. To use them from the deck, in cmux set **Settings › Automation ›
+Socket Control Mode** to **Automation mode** (or `"automation": { "socketControlMode": "automation" }` in
+`~/.config/cmux/cmux.json`). That lets other apps you run on this Mac control cmux too. Without it, the
+deck shows what the agent asks (from the hooks' note) and you answer it in cmux; **open in cmux** brings
+cmux forward without picking the tab.
+
+With access, the deck reads the dialog off the agent's screen (the question and its options) and types
+your answer into the terminal; **interrupt** presses Esc; **open in cmux** switches to the agent's
+terminal and brings cmux forward. **hide** takes the agent off the deck until its state changes. The
+daemon uses the socket methods `surface.read_text`, `surface.send_text`, `surface.send_key`,
+`surface.focus` and `system.identify`. Codex sessions in cmux aren't mirrored yet. `config.json`:
+`"cmux": false` turns it off.
 
 ## Claude sessions started elsewhere
 

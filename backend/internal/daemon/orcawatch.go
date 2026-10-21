@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"log"
 	"path/filepath"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/model"
 	"github.com/brushknight/agents-deck/backend/internal/orca"
-	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 )
 
@@ -337,39 +335,9 @@ func (d *Daemon) orcaFocus(e store.Entry) error {
 	return nil
 }
 
-// orcaAnswer types the option's key into the agent's Orca terminal.
-func (d *Daemon) orcaAnswer(id, promptID, key string) error {
-	var handle string
-	err := errors.New("")
-	d.Store.Update(id, func(e *store.Entry) bool {
-		p := e.A.Waiting
-		if e.A.Status != model.Waiting || p == nil || p.ID != promptID {
-			err = server.ErrStalePrompt
-			return false
-		}
-		for _, o := range p.Options {
-			if o.Key == key {
-				err, handle = nil, e.OrcaTerminal
-			}
-		}
-		if err != nil && !errors.Is(err, server.ErrStalePrompt) {
-			err = server.ErrBadKey
-		}
-		return false
-	})
-	if err != nil {
-		return err
-	}
-	if err := d.orcaClient().Send(handle, key, false); err != nil {
-		return err
-	}
-	d.Store.Update(id, func(e *store.Entry) bool {
-		e.SetStatus(model.Running) // until Orca reports the next state
-		e.A.Waiting = nil
-		return true
-	})
-	log.Printf("answer %s (orca): %s", id, key)
-	return nil
+// orcaSend types the option's key into the agent's Orca terminal.
+func (d *Daemon) orcaSend(e store.Entry, key string) error {
+	return d.orcaClient().Send(e.OrcaTerminal, key, false)
 }
 
 // orcaInterrupt sends Esc, which stops the agent's current turn.

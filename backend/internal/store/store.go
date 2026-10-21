@@ -23,7 +23,7 @@ type Entry struct {
 	TitleSet      bool        `json:"titleSet,omitempty"` // the user named it (-t): never auto-renamed
 	Account       string      `json:"account,omitempty"`  // the Claude account the deck started it in ("" = see its transcript)
 	CustomTitle   string      `json:"-"`                  // Claude's custom-title (/rename), from the transcript
-	External      bool        `json:"-"`                  // mirrored from another app (Codex, Orca, herdr); never persisted
+	External      bool        `json:"-"`                  // mirrored from another app (Codex, Orca, herdr, cmux); never persisted
 	Background    bool        `json:"-"`                  // shown running only because its subagents are writing
 	CompactManual bool        `json:"-"`                  // the running compaction is a /compact you typed
 	LiveTTY       string      `json:"-"`                  // a watched hand-started session: its terminal
@@ -34,6 +34,8 @@ type Entry struct {
 	HerdrSocket   string      `json:"-"`                  // an agent in herdr: its session's socket
 	HerdrPane     string      `json:"-"`                  // …its pane ("w1:p2"; changes when panes move)
 	HerdrTurn     int64       `json:"-"`                  // …state_change_seq of the state its prompt was built for
+	CmuxSurface   string      `json:"-"`                  // an agent in cmux: its terminal (surface id)
+	CmuxTurn      float64     `json:"-"`                  // …updatedAt of the hook report its prompt was built for
 
 	// Transcript accounting (rebuilt from the file on restart).
 	Offset  int64               `json:"-"`

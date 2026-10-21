@@ -35,6 +35,9 @@ type Config struct {
 	Orca *bool `json:"orca"`
 	// Herdr: mirror agents running in herdr onto the board (default on).
 	Herdr *bool `json:"herdr"`
+	// Cmux: mirror Claude agents running in cmux onto the board (default on;
+	// cmux's socket access must be Automation).
+	Cmux *bool `json:"cmux"`
 	// CodexWindowHours: threads updated within this many hours are shown (default 6).
 	CodexWindowHours float64 `json:"codexWindowHours"`
 	// ExitedTTLSeconds: how long exited agents stay visible (0 = 10 min, <0 = forever).
@@ -54,6 +57,7 @@ type Daemon struct {
 	codex     codexWatch
 	orca      orcaWatch
 	herdr     herdrWatch
+	cmux      cmuxWatch
 	front     string // tmux session of the focused terminal (last tick)
 
 	lastAutoRestore time.Time
@@ -397,11 +401,10 @@ func (d *Daemon) uniqueTitle(base string) string {
 
 // Answer types the chosen option into the agent's terminal.
 func (d *Daemon) Answer(id, promptID, key string) error {
-	if e, ok := d.Store.Get(id); ok && e.OrcaPane != "" {
-		return d.orcaAnswer(id, promptID, key)
-	}
-	if e, ok := d.Store.Get(id); ok && e.HerdrPane != "" {
-		return d.herdrAnswer(id, promptID, key)
+	if e, ok := d.Store.Get(id); ok {
+		if h, ok := d.harnessOf(e); ok {
+			return d.answerInApp(h, id, promptID, key)
+		}
 	}
 	if e, ok := d.Store.Get(id); ok && e.External {
 		return externalErr(e)
@@ -481,11 +484,8 @@ func (d *Daemon) Interrupt(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
-	if e.OrcaPane != "" {
-		return d.orcaInterrupt(e)
-	}
-	if e.HerdrPane != "" {
-		return d.herdrInterrupt(e)
+	if h, ok := d.harnessOf(e); ok {
+		return h.interrupt(e)
 	}
 	if e.External {
 		return externalErr(e)
@@ -509,11 +509,8 @@ func (d *Daemon) Focus(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
-	if e.OrcaPane != "" {
-		return d.orcaFocus(e)
-	}
-	if e.HerdrPane != "" {
-		return d.herdrFocus(e)
+	if h, ok := d.harnessOf(e); ok {
+		return h.focus(e)
 	}
 	if e.External && e.A.Tool == "claude" {
 		return d.focusLive(e)
@@ -596,12 +593,8 @@ func (d *Daemon) Dismiss(id string) error {
 	if !ok {
 		return server.ErrNotFound
 	}
-	if e.OrcaPane != "" {
-		d.orcaHide(e) // off the deck until it's active again; it keeps running in Orca
-		return nil
-	}
-	if e.HerdrPane != "" {
-		d.herdrHide(e) // the same, in herdr
+	if h, ok := d.harnessOf(e); ok {
+		h.hide(e) // off the deck until it's active again; it keeps running in its app
 		return nil
 	}
 	if e.External && e.A.Tool == "claude" {

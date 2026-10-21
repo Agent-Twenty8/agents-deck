@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/brushknight/agents-deck/backend/internal/claude"
 	"github.com/brushknight/agents-deck/backend/internal/herdr"
 	"github.com/brushknight/agents-deck/backend/internal/model"
-	"github.com/brushknight/agents-deck/backend/internal/server"
 	"github.com/brushknight/agents-deck/backend/internal/store"
 	"github.com/brushknight/agents-deck/backend/internal/term"
 )
@@ -38,9 +36,6 @@ type herdrAPI interface {
 	SendKeys(pane string, keys ...string) error
 	Focus(pane string) error
 }
-
-// inApp: an agent mirrored from an app that runs it (Orca, herdr).
-func inApp(e store.Entry) bool { return e.OrcaPane != "" || e.HerdrPane != "" }
 
 func herdrAgentID(socket, terminal string) string {
 	sum := sha256.Sum256([]byte("herdr:" + socket + ":" + terminal))
@@ -212,7 +207,7 @@ func herdrApply(e *store.Entry, a herdr.Agent, tool, screen string) bool {
 	case "blocked":
 		if e.A.Status != model.Waiting || e.HerdrTurn != a.StateChangeSeq {
 			e.SetStatus(model.Waiting)
-			e.A.Waiting = herdrPrompt(e, tool, screen)
+			e.A.Waiting = screenPrompt(e, tool, screen, "herdr")
 			e.HerdrTurn = a.StateChangeSeq
 			changed = true
 		}
@@ -225,68 +220,6 @@ func herdrApply(e *store.Entry, a herdr.Agent, tool, screen string) bool {
 		}
 	}
 	return changed
-}
-
-// herdrPrompt builds what the agent is asking from its screen: the dialog's
-// question and options, and the tool call it waits on when the transcript
-// already has it.
-func herdrPrompt(e *store.Entry, tool, screen string) *model.Prompt {
-	title, detail := screenQuestion(screen)
-	p := &model.Prompt{ID: e.NextPromptID(), Kind: "input", Title: "needs you", Context: "answer it in herdr"}
-	if tool != "" {
-		p = claude.PromptFor(e, tool, orcaToolInput(tool, ""))
-		p.Context = strings.TrimSuffix(p.Context, " · Orca") + " · in herdr"
-	}
-	if title != "" {
-		p.Title, p.Detail = strings.ToLower(clipText(title, 200)), detail
-	}
-	if opts := claude.ParseOptions(screen); len(opts) >= 2 {
-		p.Options = opts
-		if p.Kind == "input" {
-			p.Kind = "question"
-		}
-	} else if p.Kind == "question" && len(p.Options) == 0 {
-		p.Kind = "input"
-	}
-	return p
-}
-
-var (
-	firstOptionRe = regexp.MustCompile(`^[\s│|]*(?:[❯›>]\s*)?1[.)]\s+\S`)
-	ruleRe        = regexp.MustCompile(`^\s*[─━-]{8,}\s*$`)
-)
-
-// screenQuestion reads a Claude Code dialog off the screen: the lines
-// between the rule it starts with and its first option. title is the last of
-// them (the question), detail the ones above it.
-func screenQuestion(screen string) (title, detail string) {
-	lines := strings.Split(screen, "\n")
-	end := -1
-	for i, l := range lines {
-		if firstOptionRe.MatchString(l) {
-			end = i
-		}
-	}
-	if end < 0 {
-		return "", ""
-	}
-	start := end - 8
-	for i := end - 1; i >= 0 && i >= end-12; i-- {
-		if ruleRe.MatchString(lines[i]) {
-			start = i + 1
-			break
-		}
-	}
-	var keep []string
-	for _, l := range lines[max(start, 0):end] {
-		if t := strings.TrimSpace(strings.Trim(l, " │|╭╮╰╯☐☒✔")); t != "" {
-			keep = append(keep, t)
-		}
-	}
-	if len(keep) == 0 {
-		return "", ""
-	}
-	return keep[len(keep)-1], clipText(strings.Join(keep[:len(keep)-1], "\n"), 2000)
 }
 
 func herdrTool(agent string) string {
@@ -330,39 +263,9 @@ func (d *Daemon) herdrFocus(e store.Entry) error {
 	return nil
 }
 
-// herdrAnswer types the option's key into the agent's pane.
-func (d *Daemon) herdrAnswer(id, promptID, key string) error {
-	var e store.Entry
-	err := errors.New("")
-	d.Store.Update(id, func(x *store.Entry) bool {
-		p := x.A.Waiting
-		if x.A.Status != model.Waiting || p == nil || p.ID != promptID {
-			err = server.ErrStalePrompt
-			return false
-		}
-		for _, o := range p.Options {
-			if o.Key == key {
-				err, e = nil, *x
-			}
-		}
-		if err != nil && !errors.Is(err, server.ErrStalePrompt) {
-			err = server.ErrBadKey
-		}
-		return false
-	})
-	if err != nil {
-		return err
-	}
-	if err := d.herdrClient(e.HerdrSocket).SendText(e.HerdrPane, key); err != nil {
-		return err
-	}
-	d.Store.Update(id, func(x *store.Entry) bool {
-		x.SetStatus(model.Running) // until herdr reports the next state
-		x.A.Waiting = nil
-		return true
-	})
-	log.Printf("answer %s (herdr): %s", id, key)
-	return nil
+// herdrSend types the option's key into the agent's pane.
+func (d *Daemon) herdrSend(e store.Entry, key string) error {
+	return d.herdrClient(e.HerdrSocket).SendText(e.HerdrPane, key)
 }
 
 // herdrInterrupt presses Esc, which stops the agent's current turn.

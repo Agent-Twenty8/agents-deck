@@ -979,6 +979,7 @@ func serve(args []string) error {
 		go d.WatchCodex()
 		go d.WatchOrca()
 		go d.WatchHerdr()
+		go d.WatchCmux()
 		go d.WatchLive()
 		ctl, lc = d, d
 	}
