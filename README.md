@@ -30,10 +30,11 @@ Claude Code agents run in private tmux sessions started with `agentctl new`. You
 | agentctl (built in) | agents it starts, each in a tmux session with a status header |
 | [Orca](https://github.com/stablyai/orca) | agents in Orca's worktrees, while Orca is open |
 | [herdr](https://herdr.dev) | agents in herdr's panes, in every herdr session that's running |
+| [cmux](https://cmux.com) | Claude agents in cmux's terminals, while cmux is open |
 | Claude Code on its own | sessions you started by hand in any terminal, once you add them |
 | Codex app | its recent threads |
 
-Details for each are in [docs/features.md](docs/features.md#agents-in-other-harnesses).
+Details for each are in [docs/features.md](docs/features.md#agents-in-other-harnesses). Using another harness? [docs/harnesses.md](docs/harnesses.md) says how to add it, and the [harness issue](https://github.com/brushknight/agents-deck/issues?q=is%3Aissue+harness) collects requests.
 
 **Small boards** (ESP32 and friends) plug in over USB and get the same agents, prompts and actions through [Deck Link](docs/link/protocol.md); the [firmware kit](firmware/deck-link) has a status LED, an OLED tile and a knob to start from.
 
