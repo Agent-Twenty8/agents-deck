@@ -358,13 +358,13 @@ class Agent {
   /// The Claude account it runs in; null while only one is set up.
   final AgentAccount? account;
 
-  /// The app an external agent runs in ("orca"), or "" for agentctl's own
-  /// and plain mirrors.
+  /// The app an external agent runs in ("orca", "herdr"), or "" for
+  /// agentctl's own and plain mirrors.
   final String app;
 
-  /// An agent running in the Orca app: focus opens its terminal there, and
-  /// answer and interrupt work from the deck.
-  bool get inOrca => app == 'orca';
+  /// An agent running in another app (Orca, herdr): focus opens its terminal
+  /// there, and answer and interrupt work from the deck.
+  bool get inApp => app.isNotEmpty;
 
   /// A Codex app thread (view and open in the app only).
   bool get codexThread => external && tool == 'codex' && app.isEmpty;

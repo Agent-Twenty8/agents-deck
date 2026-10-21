@@ -78,7 +78,7 @@ const poseOf = (a) => {
 // another terminal that you added to the deck ("watched").
 const codexThread = (a) => a.external && a.tool === 'codex' && !a.app;
 const watched = (a) => a.external && a.tool === 'claude' && !a.app;
-const inOrca = (a) => a.app === 'orca';
+const inApp = (a) => !!a.app; // runs in another app (Orca, herdr): answer, interrupt and focus work there
 
 const needsYou = (a) => a.status === 'waiting' || a.status === 'error';
 
@@ -1051,7 +1051,7 @@ function actionButton(a, label, path, cls, note) {
 // Exited agents are removed at once; a live one is stopped only on a second click.
 function removeButton(a, note) {
   const exited = a.status === 'exited' || a.external; // hiding or un-adding needs no confirm
-  const idle = codexThread(a) || inOrca(a) ? 'hide' : watched(a) ? 'remove from deck' : a.status === 'exited' ? 'remove' : 'stop';
+  const idle = codexThread(a) || inApp(a) ? 'hide' : watched(a) ? 'remove from deck' : a.status === 'exited' ? 'remove' : 'stop';
   const b = h('button', { type: 'button', class: 'btn narrow', text: idle });
   let armed = null;
   b.addEventListener('click', async () => {
@@ -1086,9 +1086,9 @@ function buildInfo(a) {
   const server = h('span');
   const note = h('div', { class: 'note', role: 'status', 'aria-live': 'polite' });
   const actions = h('div', { class: 'actions' });
-  if (a.status !== 'exited') actions.append(actionButton(a, codexThread(a) ? 'open in codex' : inOrca(a) ? 'open in orca' : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
+  if (a.status !== 'exited') actions.append(actionButton(a, codexThread(a) ? 'open in codex' : inApp(a) ? `open in ${a.app}` : hungry(a) ? 'review in terminal' : 'focus terminal', 'focus', 'solid', note));
   else if (a.resumable) actions.append(actionButton(a, 'resume', 'resume', 'solid', note));
-  if (a.status === 'running' && (!a.external || inOrca(a))) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
+  if (a.status === 'running' && (!a.external || inApp(a))) actions.append(actionButton(a, 'interrupt', 'interrupt', 'narrow', note));
   else actions.append(removeButton(a, note));
   if (a.tool === 'claude' && a.account) for (const acc of accounts) if (acc.name !== a.account.name) actions.append(handoffButton(a, acc, note));
 
