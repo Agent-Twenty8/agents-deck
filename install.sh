@@ -84,6 +84,10 @@ After=default.target
 [Service]
 ExecStart=$bin serve
 Restart=on-failure
+# Only stop the daemon itself on stop/restart — agents run in a tmux server
+# the daemon spawns, and KillMode=control-group (the default) would take the
+# whole cgroup, killing every agent whenever the daemon restarts.
+KillMode=process
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 [Install]
@@ -91,7 +95,10 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload 2>/dev/null || true
     if systemctl --user enable --now agents-deck.service 2>/dev/null; then
-      echo "  daemon → systemd user service 'agents-deck' (running)"
+      # enable --now won't restart an already-running daemon, so a reinstall
+      # would keep the old binary; restart to pick up a rebuilt agentctl.
+      systemctl --user restart agents-deck.service 2>/dev/null || true
+      echo "  daemon → systemd user service 'agents-deck' (running latest binary)"
     else
       echo "  systemd user unit written; start it with:"
       echo "    systemctl --user enable --now agents-deck.service"
