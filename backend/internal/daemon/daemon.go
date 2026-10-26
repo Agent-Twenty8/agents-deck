@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -504,6 +505,20 @@ func (d *Daemon) Interrupt(id string) error {
 }
 
 // Focus shows the agent's terminal on the Mac.
+// attachHint returns the command to reach a watched (external) session by
+// hand, for clients that can't focus a window (non-macOS daemon, web/phone).
+// It clears the agent's "unseen" flag, like a real focus does, since the user
+// is acting on it. The message surfaces in the UI's action status line.
+func (d *Daemon) attachHint(e store.Entry) error {
+	d.Store.Update(e.A.ID, func(x *store.Entry) bool { was := x.A.Unseen; x.A.Unseen = false; return was })
+	if e.A.Tool == "claude" && shortIDRe.MatchString(e.LiveAttach) {
+		// Hand-started background Claude session: Claude Code's own way in.
+		return fmt.Errorf("attach from a terminal: claude attach %s", e.LiveAttach)
+	}
+	// A session already live in its own terminal elsewhere.
+	return errors.New("this session runs in its own terminal — nothing to attach to from here")
+}
+
 func (d *Daemon) Focus(id string) error {
 	e, ok := d.Store.Get(id)
 	if !ok {
@@ -512,10 +527,17 @@ func (d *Daemon) Focus(id string) error {
 	if h, ok := d.harnessOf(e); ok {
 		return h.focus(e)
 	}
-	if e.External && e.A.Tool == "claude" {
-		return d.focusLive(e)
-	}
 	if e.External {
+		// Focusing a watched session's window needs macOS + iTerm2 (the
+		// StealFocus escape / osascript). Off macOS — and for any web/phone
+		// client — there is no window to raise, so hand back the command to
+		// attach to it by hand (e.g. over SSH in Termius) instead.
+		if runtime.GOOS != "darwin" {
+			return d.attachHint(e)
+		}
+		if e.A.Tool == "claude" {
+			return d.focusLive(e)
+		}
 		return d.focusExternal(e)
 	}
 	if e.A.Status == model.Exited {
